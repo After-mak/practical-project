@@ -1,0 +1,4 @@
+# aws 공유 계정 접근
+aws_access_key = "액세스키"
+aws_secret_key = "비밀액세스키"
+aws_profile    = "admin-자기이름"

@@ -1,0 +1,17 @@
+
+# === 민감한 정보가 들어 있는 파일 ===
+*.tfvars
+
+# === 상태파일 ===
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+
+# ============ 비밀 · 키 ============
+*.pem
+*.pem.pub
+
+
