@@ -6,7 +6,7 @@
 terraform {
   required_version = ">= 1.14.0, < 2.0.0"
   required_providers {
-    aws    = { source = "hashicorp/aws",    version = "~> 6.5" }
+    aws    = { source = "hashicorp/aws",    version = "~> 5.0" }
     random = { source = "hashicorp/random", version = "~> 3.0" }  # random_id 용
   }
 }
@@ -23,7 +23,7 @@ resource "aws_s3_bucket" "tfstate_bucket" {
   force_destroy = false # 실수로 상태 파일이 담긴 버킷이 통째로 날아가는 것을 방지
 
   lifecycle {
-    # prevent_destroy = true
+    prevent_destroy = true
   }
 }
 

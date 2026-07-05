@@ -8,6 +8,15 @@
 TF_DIR := infra/terraform
 TF_DIR2 := infra/terraform/init
 ANSIBLE_DIR  := infra/ansible
+TF_VARS_FILE := infra/terraform/terraform.tfvars
+
+# tfvars 파일에서 aws_profile 값을 자동으로 추출 (예: admin-jongwon)
+AWS_PROF := $(shell grep "aws_profile" $(TF_VARS_FILE) 2>/dev/null | cut -d'"' -f2)
+# PROFILE_NAME에서 admin-을 제외한 유저명 추출
+CURRENT_USER := $(shell echo "$(AWS_PROF)" | sed 's/admin-//')
+
+# ⭐ Makefile 안에서 실행되는 모든 명령에 AWS_PROFILE을 자동으로 주입
+export AWS_PROFILE := $(AWS_PROF)
 
 # 모든 명령어를 .PHONY에 등록하여 파일 이름 충돌 방지 (가독성을 위해 분할)
 .PHONY: help setup check init fmt validate plan apply apply-auto output destroy
@@ -56,7 +65,7 @@ check:
 # ── Terraform ────────────────────────────────────────────────
 init:
 	@echo "▶ 테라폼 백엔드 초기화 중..."
-	cd $(TF_DIR) && terraform init
+	cd $(TF_DIR) && terraform init -backend-config=init/backend.hcl
 
 fmt:
 	@echo "▶ 테라폼 코드 포맷 정렬 중..."
