@@ -62,8 +62,31 @@ echo " 고정된 백엔드 S3 버킷 확인: $BUCKET_NAME"
 echo " 테라폼 초기화를 진행합니다... "
 
 terraform init
-# 이미 버킷이 존재하므로 에러가 날 수 있지만 || true 로 안전하게 넘어갑니다.
-terraform apply -auto-approve || true
+
+# -------------------------------------------------------------
+# [핵심 조건문] AWS에 자원이 이미 존재하는지 체크
+# -------------------------------------------------------------
+echo "🔍 AWS 원격 환경에 S3 버킷과 DynamoDB 테이블이 이미 존재하는지 검사합니다..."
+
+# S3 버킷 존재 여부 확인 (존재하면 0, 없으면 에러 코드 리턴)
+SET_S3_EXISTS=0
+aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null && SET_S3_EXISTS=1 || SET_S3_EXISTS=0
+
+# DynamoDB 테이블 존재 여부 확인
+SET_DB_EXISTS=0
+aws dynamodb describe-table --table-name "$DYNAMODB_TABLE" 2>/dev/null && SET_DB_EXISTS=1 || SET_DB_EXISTS=0
+
+
+if [ "$SET_S3_EXISTS" -eq 1 ] && [ "$SET_DB_EXISTS" -eq 1 ]; then
+    # 1. 둘 다 이미 존재한다면 가뿐하게 건너뜁니다.
+    echo " [확인] S3 버킷과 DynamoDB 테이블이 이미 AWS에 존재합니다."
+    echo " 테라폼 신규 생성을 건너뛰고 백엔드 연결 설정으로 진행합니다."
+else
+    # 2. 하나라도 없다면 최초 실행 상태이므로 새로 생성합니다.
+    echo " [신규] 백엔드 인프라가 존재하지 않습니다. 테라폼 배포를 시작합니다..."
+    terraform apply -auto-approve || true
+fi
+# -------------------------------------------------------------
 
 echo "📝 main 테라폼용 backend.hcl 설정 파일을 생성합니다..."
 
