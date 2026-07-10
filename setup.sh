@@ -57,6 +57,8 @@ export AWS_PROFILE="$PROFILE_NAME"
 
 # 이미 생성되어 있는 고정 버킷명을 변수에 바로 할당합니다.
 BUCKET_NAME="tfstate-bucket-95ada58e"
+DYNAMODB_TABLE="mak-tf-lock"
+TARGET_REGION="ap-northeast-2"
 
 echo " 고정된 백엔드 S3 버킷 확인: $BUCKET_NAME"
 echo " 테라폼 초기화를 진행합니다... "
@@ -68,22 +70,36 @@ terraform init
 # -------------------------------------------------------------
 echo "🔍 AWS 원격 환경에 S3 버킷과 DynamoDB 테이블이 이미 존재하는지 검사합니다..."
 
-# S3 버킷 존재 여부 확인 (존재하면 0, 없으면 에러 코드 리턴)
-SET_S3_EXISTS=0
-aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null && SET_S3_EXISTS=1 || SET_S3_EXISTS=0
+# =============================================================
+# [범인 검거용 디버깅 덤프] 변수 상태와 실제 에러를 화면에 띄웁니다.
+# =============================================================
+# echo "==== 현재 스크립트가 인식한 변수 값 체크 ===="
+# echo "체크 대상 버킷명: [${BUCKET_NAME}]"
+# echo "체크 대상 테이블: [${DYNAMODB_TABLE}]"
+# echo "사용할 프로필명: [${PROFILE_NAME}]"
+# echo "사용할 리전지역: [${TARGET_REGION}]"
+# echo "============================================="
 
-# DynamoDB 테이블 존재 여부 확인
-SET_DB_EXISTS=0
-aws dynamodb describe-table --table-name "$DYNAMODB_TABLE" 2>/dev/null && SET_DB_EXISTS=1 || SET_DB_EXISTS=0
+# echo "📢 [디버그] S3 조회 시 실제 AWS가 뱉는 에러문 확인:"
+# aws s3api head-bucket --bucket "$BUCKET_NAME" --profile "$PROFILE_NAME" --region "$TARGET_REGION"
+# echo "S3 조회 결과 코드(0이면 성공): $?"
 
+# echo "📢 [디버그] DynamoDB 조회 시 실제 AWS가 뱉는 에러문 확인:"
+# aws dynamodb describe-table --table-name "$DYNAMODB_TABLE" --profile "$PROFILE_NAME" --region "$TARGET_REGION"
+# echo "DB 조회 결과 코드(0이면 성공): $?"
+# echo "============================================="
+# =============================================================
 
-if [ "$SET_S3_EXISTS" -eq 1 ] && [ "$SET_DB_EXISTS" -eq 1 ]; then
-    # 1. 둘 다 이미 존재한다면 가뿐하게 건너뜁니다.
-    echo " [확인] S3 버킷과 DynamoDB 테이블이 이미 AWS에 존재합니다."
+if aws s3api head-bucket --bucket "$BUCKET_NAME" --profile "$PROFILE_NAME" --region "$TARGET_REGION" >/dev/null 2>&1 && \
+   aws dynamodb describe-table --table-name "$DYNAMODB_TABLE" --profile "$PROFILE_NAME" --region "$TARGET_REGION" >/dev/null 2>&1; then
+    
+    # 두 명령어가 모두 성공(종료 코드 0)한 경우 진입
+    echo "✨ [확인] S3 버킷과 DynamoDB 테이블이 이미 AWS에 존재합니다."
     echo " 테라폼 신규 생성을 건너뛰고 백엔드 연결 설정으로 진행합니다."
+
 else
-    # 2. 하나라도 없다면 최초 실행 상태이므로 새로 생성합니다.
-    echo " [신규] 백엔드 인프라가 존재하지 않습니다. 테라폼 배포를 시작합니다..."
+    # 하나라도 실패한 경우 진입 (최초 1회 생성자용)
+    echo " [신규] 백엔드 인프라가 존재하지 않거나 권한 에러가 있습니다. 테라폼 배포를 시작합니다..."
     terraform apply -auto-approve || true
 fi
 # -------------------------------------------------------------
