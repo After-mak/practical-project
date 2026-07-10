@@ -46,26 +46,34 @@ aws configure set aws_secret_access_key "$USER_SECRET_KEY" --profile "$PROFILE_N
 aws configure set region "ap-northeast-2" --profile "$PROFILE_NAME"
 aws configure set output "json" --profile "$PROFILE_NAME"
 
+# =============================================================
 # S3, DynamoDB 백엔드 생성 폴더로 이동하여 테라폼 초기화 및 배포
+# =============================================================
 echo " [$PROFILE_NAME] 프로필로 공유 S3 및 DynamoDB 초기화/생성 중..."
 cd "$TF_DIR2"
 
 # 이 스크립트 안에서 생성 명령을 날릴 때 해당 프로필을 사용하도록 지정
 export AWS_PROFILE="$PROFILE_NAME"
 
+# 이미 생성되어 있는 고정 버킷명을 변수에 바로 할당합니다.
+BUCKET_NAME="tfstate-bucket-95ada58e"
+
+echo " 고정된 백엔드 S3 버킷 확인: $BUCKET_NAME"
+echo " 테라폼 초기화를 진행합니다... "
+
 terraform init
-# 이미 생성되어 있다면 에러를 뱉으며 튕기지 말고, "변경 사항 없음"으로 부드럽게 넘어가라는 명령어
+# 이미 버킷이 존재하므로 에러가 날 수 있지만 || true 로 안전하게 넘어갑니다.
 terraform apply -auto-approve || true
 
 echo "📝 main 테라폼용 backend.hcl 설정 파일을 생성합니다..."
-BUCKET_NAME=$(terraform output -raw s3_bucket_name)
 
+# 지정된 고정 버킷명으로 backend.hcl 파일을 생성합니다.
 cat << EOF > ../init/backend.hcl
 bucket = "${BUCKET_NAME}"
 EOF
 
-echo "✅ backend.hcl 생성이 완료되었습니다."
+echo "✅ backend.hcl 생성이 완료되었습니다. (적용된 버킷: $BUCKET_NAME)"
 
 echo "============================================================="
-echo "✅ 모든 초기 설정 및 버킷 생성이 성공적으로 완료되었습니다!"
+echo "✅ 모든 초기 설정 및 backend.hcl 연동이 성공적으로 완료되었습니다!"
 echo "============================================================="
