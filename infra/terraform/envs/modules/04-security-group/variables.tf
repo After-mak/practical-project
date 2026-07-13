@@ -11,6 +11,6 @@ variable "name" {
 }
 
 variable "eks_private_subnet_cidrs" {
-  description = "EKS 프라이빗 서브넷의 CIDR 블록 리스트 (RDS 접근 허용 용도)"
+  description = "EKS 프라이빗 서브넷의 CIDR 블록 리스트 (RDS 및 NAT 접근 허용 용도)"
   type        = list(string)
 }
