@@ -1,0 +1,52 @@
+name: GitOps Value Update Test
+
+# 💡 깃허브 웹 UI에서 수동으로 버튼을 눌러 테스트할 수 있게 설정
+on:
+  workflow_dispatch:
+    inputs:
+      recommended_replicas:
+        description: '테스트로 반영할 레플리카 개수 입력'
+        required: true
+        default: '3'
+
+jobs:
+  test-modify-yaml:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. 원격으로 저장소 clone
+    - name: Checkout Target Deployment Repository
+      uses: actions/checkout@v4
+      with:
+        repository: '${{ github.repository_owner }}/mak-argocd-deploy' # 배포용 저장소명
+        token: ${{ secrets.GITOPS_TOKEN }}
+        path: 'deploy-repo' # deploy-repo 라는 하위 폴더에 다운로드
+
+    # 2. yq 도구를 사용해서 values.yaml의 값 수정
+    - name: Update values.yaml using yq
+      run: |
+        echo "현재 디렉토리 확인 및 파일 수정 시작"
+        cd deploy-repo
+        
+        # yq를 사용하여 charts/mak-app/values.yaml의 replicaCount를 입력값으로 교체
+        yq -i '.replicaCount = ${{ github.event.inputs.recommended_replicas }}' charts/mak-app/values.yaml
+        
+        echo "=== 수정된 values.yaml 내용 확인 ==="
+        cat charts/mak-app/values.yaml
+
+    # 3. 수정된 내용을 배포용 저장소(mak-argocd-deploy)에 Commit & Push
+    - name: Commit and Push to Deploy Repository
+      run: |
+        cd deploy-repo
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # 변경 사항이 있으면 커밋 후 푸시
+        git add charts/mak-app/values.yaml
+        if ! git diff --cached --quiet; then
+          git commit -m "Test: [GitOps] 깃허브 액션을 통한 replicaCount 자동 변경 테스트"
+          git push origin main
+          echo "성공적으로 2번 저장소에 푸시되었습니다!"
+        else
+          echo "변경된 내용이 없어 푸시를 생략합니다."
+        fi
