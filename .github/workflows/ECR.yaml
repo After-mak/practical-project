@@ -31,7 +31,7 @@ jobs:
     #   env:
     #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
     #     ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름을 적어주세요.
-    #     IMAGE_TAG: "${{ github.run_number }}.0" # 자동으로 1씩 증가하는 빌드 번호
+    #     IMAGE_TAG: ${{ github.run_number }} # 자동으로 1씩 증가하는 빌드 번호
     #   run: |
     #     # ECR 주소와 태그를 매핑하여 빌드
     #     docker build \
@@ -55,13 +55,17 @@ jobs:
         token: ${{ secrets.GITOPS_TOKEN }}
         path: 'deploy-repo'
 
-    # 6. yq를 이용해 배포 저장소의 values.yaml 내 image.tag를 새 증가된 숫자로 변경
+    # 6. yq를 이용해 배포 저장소의 values.yaml 내 image.tag를 새 증가된 숫자로 변경(소수점)
     - name: Update Image Tag in values.yaml using yq
       env:
-        NEW_TAG: "${{ github.run_number }}.0"
+        NEW_TAG: ${{ github.run_number }}
       run: |
         cd deploy-repo
         
+        export NEW_TAG=$(awk "BEGIN {printf \"%.1f\", $NEW_TAG * 0.1}")
+        
+        echo "새로 생성된 소수점 버전: $NEW_TAG"
+
         # values.yaml의 image.tag 부분을 증가된 숫자로 변경
         yq -i ".image.tag = env(NEW_TAG)" charts/mak-app/values.yaml
         
