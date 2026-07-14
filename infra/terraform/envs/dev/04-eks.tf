@@ -4,15 +4,18 @@
 module "project03_eks" {
   source = "../../modules/08-eks"
 
-  cluster_name = "project03-eks"
+  cluster_name    = "project03-eks"
   cluster_version = "1.31"
-  vpc_id       = module.project03_vpc.vpc_id
-  subnet_ids   = module.project03_vpc.private_subnet_ids
+  vpc_id          = module.project03_vpc.vpc_id
+  subnet_ids = [
+    module.project03_private_subnet_cluster_a.subnet_id,
+    module.project03_private_subnet_cluster_c.subnet_id
+  ]
 
-  node_security_group_ids = [module.project03_node_sg.sg_id]
+  node_security_group_ids = [module.security_groups.eks_node_sg_id]
 
   instance_types = ["t3.medium"]
-  ami_type = "AL2023_x86_64_STANDARD"
+  ami_type       = "AL2023_x86_64_STANDARD"
   min_size       = 2
   max_size       = 4
   desired_size   = 2
@@ -20,17 +23,30 @@ module "project03_eks" {
 
 # eks 접속용 인증 토큰 가져오기
 data "aws_eks_cluster_auth" "cluster" {
-  name = project03.eks.cluster.name
+  name = module.project03_eks.cluster_name
 }
 
 provider "kubernetes" {
-
-
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  host                   = module.project03_eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name]
   }
+}
+
+############################################
+# 5. ALB (Public Load Balancer)
+############################################
+module "alb" {
+  source = "../../modules/12-alb"
+
+  name   = "project03"
+  vpc_id = module.project03_vpc.vpc_id
+  public_subnet_ids = [
+    module.project03_public_subnet_a.subnet_id,
+    module.project03_public_subnet_c.subnet_id
+  ]
+  alb_sg_id = module.security_groups.alb_sg_id
 }

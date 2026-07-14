@@ -37,7 +37,7 @@ module "project03_nat_instance_A" {
   source             = "../../modules/06-nat-instance"
   name               = "project03-nat-instance"
   subnet_id          = module.project03_public_subnet_a.subnet_id
-  security_group_ids = [module.project03_nat_sg.sg_id]
+  security_group_ids = [module.security_groups.nat_sg_id]
   tailscale_auth_key = var.tailscale_auth_key
 }
 
@@ -46,7 +46,7 @@ module "project03_nat_instance_C" {
   source             = "../../modules/06-nat-instance"
   name               = "project03-nat-instance"
   subnet_id          = module.project03_public_subnet_c.subnet_id
-  security_group_ids = [module.project03_nat_sg.sg_id]
+  security_group_ids = [module.security_groups.nat_sg_id]
   tailscale_auth_key = var.tailscale_auth_key
 }
 
@@ -58,12 +58,12 @@ resource "aws_route_table" "project03_private_rt" {
   vpc_id = module.project03_vpc.vpc_id
 
   route {
-    cidr_block           = "0.0.0.0/0"
+    cidr_block = "0.0.0.0/0"
     # NAT 인스턴스의 네트워크 인터페이스 ID를 목적지로 지정
-    network_interface_id = module.project03_nat_instance.primary_network_interface_id
+    network_interface_id = module.project03_nat_instance_A.primary_network_interface_id
   }
 
-  depends_on = [module.project03_nat_instance]
+  depends_on = [module.project03_nat_instance_A]
 
   tags = {
     Name = "project03-private-rt"

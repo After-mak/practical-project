@@ -18,7 +18,7 @@ module "project03_public_subnet_a" {
   vpc_id        = module.project03_vpc.vpc_id
   cidr_block    = "10.0.1.0/24"
   az            = var.azs[0]
-  map_public_ip = true 
+  map_public_ip = true
   name          = "project03-public-subnet-a"
 }
 
@@ -29,7 +29,7 @@ module "project03_public_subnet_c" {
   vpc_id        = module.project03_vpc.vpc_id
   cidr_block    = "10.0.2.0/24"
   az            = var.azs[1]
-  map_public_ip = true 
+  map_public_ip = true
   name          = "project03-public-subnet-c"
 }
 
