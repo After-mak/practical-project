@@ -58,7 +58,7 @@ jobs:
     # 6. yq를 이용해 배포 저장소의 values.yaml 내 image.tag를 새 증가된 숫자로 변경
     - name: Update Image Tag in values.yaml using yq
       env:
-        NEW_TAG: ${{ github.run_number }}
+        NEW_TAG: "${{ github.run_number }}.0"
       run: |
         cd deploy-repo
         
