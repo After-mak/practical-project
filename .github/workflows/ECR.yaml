@@ -66,8 +66,8 @@ jobs:
         
         echo "새로 생성된 소수점 버전: $NEW_TAG"
 
-        # values.yaml의 image.tag 부분을 증가된 숫자로 변경
-        yq -i ".image.tag = env(NEW_TAG)" charts/mak-app/values.yaml
+        # values.yaml의 image.tag 부분을 증가된 숫자로 변경("tag")
+        yq -i ".image.tag = env(NEW_TAG) | .image.tag style=\"double\"" charts/mak-app/values.yaml
         
         echo "=== 수정된 values.yaml 내용 확인 ==="
         cat charts/mak-app/values.yaml
