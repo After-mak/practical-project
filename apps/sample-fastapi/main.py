@@ -80,7 +80,7 @@ def error():
         "message": "no error",
     }
 
-
+# Queue Length 증가
 @app.post("/api/queue/join")
 def join_queue():
     # 사용자가 대기열에 진입하는 상황을 재현합니다.
@@ -95,7 +95,7 @@ def join_queue():
         "queue_length": current_queue_length,
     }
 
-
+# Queue Length 감소
 @app.post("/api/queue/process")
 def process_queue():
     # 대기열 항목을 하나 처리하되 Queue Length가 음수가 되지 않게 합니다.
@@ -110,7 +110,7 @@ def process_queue():
         "queue_length": current_queue_length,
     }
 
-
+# 현재 Queue Length 조회
 @app.get("/api/queue/status")
 def queue_status():
     with queue_lock:
@@ -121,6 +121,7 @@ def queue_status():
     }
 
 
+# FastAPI Queue Length → Prometheus 수집 → KEDA Prometheus Trigger 조회 → Deployment Replica 조절
 @app.get("/metrics", response_class=PlainTextResponse)
 def metrics():
     # Prometheus와 KEDA가 현재 Queue Length를 수집할 수 있게 노출합니다.
