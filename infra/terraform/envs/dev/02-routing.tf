@@ -51,44 +51,57 @@ module "project03_nat_instance_C" {
 }
 
 
-# [3] Private Route Table
-# private subnet이 이용하는 라우팅 테이블입니다.
-# nat instance를 통해 외부와 연결됩니다
-resource "aws_route_table" "project03_private_rt" {
+# [3] Private Route Table A & C
+# AZ별로 프라이빗 서브넷이 각각 자신의 NAT 인스턴스를 바라보도록 라우팅 테이블을 2개 생성합니다.
+resource "aws_route_table" "project03_private_rt_a" {
   vpc_id = module.project03_vpc.vpc_id
 
   route {
     cidr_block = "0.0.0.0/0"
-    # NAT 인스턴스의 네트워크 인터페이스 ID를 목적지로 지정
     network_interface_id = module.project03_nat_instance_A.primary_network_interface_id
   }
 
   depends_on = [module.project03_nat_instance_A]
 
   tags = {
-    Name = "project03-private-rt"
+    Name = "project03-private-rt-a"
+  }
+}
+
+resource "aws_route_table" "project03_private_rt_c" {
+  vpc_id = module.project03_vpc.vpc_id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    network_interface_id = module.project03_nat_instance_C.primary_network_interface_id
+  }
+
+  depends_on = [module.project03_nat_instance_C]
+
+  tags = {
+    Name = "project03-private-rt-c"
   }
 }
 
 # [4] Private Subnet 연결
-# cluster로 사용할 서브넷과 DB 서브넷을 프라이빗 라우팅 테이블에 연결합니다.
+# AZ A의 서브넷들은 RT A에, AZ C의 서브넷들은 RT C에 연결합니다.
 resource "aws_route_table_association" "cluster_rt_A" {
   subnet_id      = module.project03_private_subnet_cluster_a.subnet_id
-  route_table_id = aws_route_table.project03_private_rt.id
+  route_table_id = aws_route_table.project03_private_rt_a.id
 }
 
 resource "aws_route_table_association" "db_rt_A" {
   subnet_id      = module.project03_private_subnet_db_a.subnet_id
-  route_table_id = aws_route_table.project03_private_rt.id
+  route_table_id = aws_route_table.project03_private_rt_a.id
 }
 
 resource "aws_route_table_association" "cluster_rt_C" {
   subnet_id      = module.project03_private_subnet_cluster_c.subnet_id
-  route_table_id = aws_route_table.project03_private_rt.id
+  route_table_id = aws_route_table.project03_private_rt_c.id
 }
 
 resource "aws_route_table_association" "db_rt_C" {
   subnet_id      = module.project03_private_subnet_db_c.subnet_id
-  route_table_id = aws_route_table.project03_private_rt.id
+  route_table_id = aws_route_table.project03_private_rt_c.id
 }
 
