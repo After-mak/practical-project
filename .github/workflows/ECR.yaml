@@ -35,7 +35,7 @@ jobs:
       run: |
         # ECR 주소와 태그를 매핑하여 빌드
         docker build \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG . \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
           -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
    
         # AWS ECR로 이미지 푸시
