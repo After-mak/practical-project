@@ -4,11 +4,11 @@
 
 resource "aws_db_instance" "this" {
   identifier             = "project03-db"
-  engine                 = "postgresql"
-  engine_version         = "8.0"
-  instance_class         = "db.t3.medium"
-  allocated_storage      = 30
-  multi_az               = true
+  engine                 = "postgres"
+  engine_version         = "15"
+  instance_class         = "db.t3.micro"
+  allocated_storage      = 20
+  multi_az               = false
   username               = var.db_user
   password               = var.db_password
   vpc_security_group_ids = [module.security_groups.rds_sg_id]
