@@ -1,0 +1,5 @@
+tailscale_auth_key = "여기에 tailscale auth key 작성"
+
+username = scott
+
+password = tiger
