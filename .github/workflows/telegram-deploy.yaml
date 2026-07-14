@@ -1,6 +1,6 @@
 name: GitOps Value Update via Telegram
 
-# 💡 수동 버튼을 없애고, 외부 API 호출(repository_dispatch)을 받으면 작동하도록 변경
+# 외부 API 호출(repository_dispatch)을 받으면 작동
 on:
   repository_dispatch:
     types: [telegram-approved] # 💡 우리가 지정한 이벤트 이름
@@ -17,11 +17,14 @@ jobs:
         path: 'deploy-repo'
 
     - name: Update values.yaml using yq
+      env:
+        # 환경변수로 안전하게 먼저 빼두기
+        RECOMMENDED_REPLICAS: ${{ github.event.client_payload.recommended_replicas }}
       run: |
         cd deploy-repo
         
-        # 💡 텔레그램 봇 백엔드가 보낸 파라미터(client_payload)를 안전하게 매핑
-        yq -i ".replicaCount = ${{ github.event.client_payload.recommended_replicas }}" charts/mak-app/values.yaml
+        # 텔레그램 봇 백엔드가 보낸 파라미터(client_payload)를 안전하게 매핑
+        yq -i ".replicaCount = env(RECOMMENDED_REPLICAS)" charts/mak-app/values.yaml
         
         echo "=== 수정된 values.yaml 내용 확인 ==="
         cat charts/mak-app/values.yaml
