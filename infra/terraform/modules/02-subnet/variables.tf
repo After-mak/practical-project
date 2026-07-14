@@ -6,12 +6,12 @@ variable "cidr_block" {
 
 }
 variable "map_public_ip" {
-  
+
 }
 variable "name" {
-  
+
 }
 
 variable "vpc_id" {
-  
+
 }

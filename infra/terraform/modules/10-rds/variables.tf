@@ -65,10 +65,10 @@ variable "tags" {
 }
 
 variable "name" {
-  type      = string
+  type = string
 }
 
 variable "subnet_ids" {
-  type      = list(string)
+  type = list(string)
 }
 

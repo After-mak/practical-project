@@ -1,29 +1,16 @@
-variable "name" {
-  type = string
-}
+# modules/04-security-group/variables.tf
 
 variable "vpc_id" {
-  type = string
+  description = "보안 그룹이 생성될 VPC의 ID"
+  type        = string
 }
 
-variable "ingress_rules" {
-  type = list(object({
-    from_port   = number
-    to_port     = number
-    protocol    = string
-    cidr_blocks      = optional(list(string))
-    security_groups  = optional(list(string))
-    description = optional(string)
-  }))
+variable "name" {
+  description = "보안 그룹 명칭 접두사"
+  type        = string
 }
 
-variable "egress_rules" {
-  type = list(object({
-    from_port   = number
-    to_port     = number
-    protocol    = string
-    cidr_blocks      = optional(list(string))
-    security_groups  = optional(list(string))
-    description = optional(string)
-  }))
+variable "eks_private_subnet_cidrs" {
+  description = "EKS 프라이빗 서브넷의 CIDR 블록 리스트 (RDS 및 NAT 접근 허용 용도)"
+  type        = list(string)
 }

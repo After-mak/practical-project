@@ -55,14 +55,25 @@ resource "aws_instance" "nat" {
   }
 }
 
+# ---------------------------------------------------------
+# [핵심] NAT 인스턴스용 고정 공인 IP (Elastic IP) 생성
+# ---------------------------------------------------------
+# 일반적인 EC2의 퍼블릭 IP는 컴퓨터를 껐다 켜면 주소가 바뀌어 버립니다.
+# NAT 인스턴스는 외부 인터넷으로 나가는 '고정된 출구' 역할을 해야 하므로,
+# 절대로 주소가 바뀌지 않는 고정 IP(EIP)를 발급받아야 합니다.
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
-  
+
   tags = {
     Name = "${var.name}-eip"
   }
 }
 
+# ---------------------------------------------------------
+# 고정 IP(EIP)를 NAT 인스턴스에 연결(결합)
+# ---------------------------------------------------------
+# 위에서 발급받은 고정 IP(aws_eip.nat_eip)를
+# 우리가 만든 NAT 컴퓨터(aws_instance.nat)의 랜선 잭에 찰칵 꽂아주는 작업입니다.
 resource "aws_eip_association" "nat_eip_assoc" {
   instance_id   = aws_instance.nat.id
   allocation_id = aws_eip.nat_eip.id
