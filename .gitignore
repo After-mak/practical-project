@@ -17,3 +17,5 @@ crash.log
 
 # S3 이름 노출 방지
 backend.hcl
+
+/docs

@@ -6,8 +6,8 @@
 terraform {
   required_version = ">= 1.14.0, < 2.0.0"
   required_providers {
-    aws    = { source = "hashicorp/aws",    version = "~> 5.0" }
-    random = { source = "hashicorp/random", version = "~> 3.0" }  # random_id 용
+    aws    = { source = "hashicorp/aws", version = "~> 5.0" }
+    random = { source = "hashicorp/random", version = "~> 3.0" } # random_id 용
   }
 }
 
@@ -29,15 +29,15 @@ resource "aws_s3_bucket" "tfstate_bucket" {
 
 # S3 버전 관리 활성화 (틀어지거나 유실되었을 때 과거 상태로 복구하기 위해 필수)
 resource "aws_s3_bucket_versioning" "tfstate_versioning" {
-  bucket    = aws_s3_bucket.tfstate_bucket.id
+  bucket = aws_s3_bucket.tfstate_bucket.id
   versioning_configuration {
-    status  = "Enabled"
+    status = "Enabled"
   }
 }
 
 # S3 서버 사이드 암호화 설정 (민감한 인프라 정보 암호화 보호)
 resource "aws_s3_bucket_server_side_encryption_configuration" "tfstate_crypto" {
-  bucket            = aws_s3_bucket.tfstate_bucket.id
+  bucket = aws_s3_bucket.tfstate_bucket.id
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
