@@ -28,6 +28,7 @@ jobs:
 
     # # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
     - name: Build, tag, and push image to Amazon ECR
+      working-directory: ./app-test
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름을 적어주세요.
