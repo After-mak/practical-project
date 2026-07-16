@@ -11,5 +11,6 @@ module "alb" {
     module.project03_public_subnet_a.subnet_id,
     module.project03_public_subnet_c.subnet_id
   ]
-  alb_sg_id = module.security_groups.alb_sg_id
+  alb_sg_id           = module.security_groups.alb_sg_id
+  acm_certificate_arn = var.acm_certificate_arn
 }
