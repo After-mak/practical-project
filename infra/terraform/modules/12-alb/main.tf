@@ -39,12 +39,43 @@ resource "aws_lb_target_group" "app" {
   }
 }
 
-# 3. ALB listener
-# 80 (http) 포트로 들어오는 트래픽을 타겟 그룹으로 전달
+# 3. ALB listener (HTTP)
+# 인증서가 전달되면 HTTPS로 리다이렉트, 없으면 타겟그룹으로 포워딩
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
+
+  dynamic "default_action" {
+    for_each = var.acm_certificate_arn == "" ? [1] : []
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.app.arn
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = var.acm_certificate_arn != "" ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+}
+
+# 4. ALB listener (HTTPS)
+# ACM 인증서가 전달되었을 때만 생성
+resource "aws_lb_listener" "https" {
+  count             = var.acm_certificate_arn != "" ? 1 : 0
+  load_balancer_arn = aws_lb.main.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = var.acm_certificate_arn
 
   default_action {
     type             = "forward"
