@@ -1,0 +1,25 @@
+# /home/user1/practical-project/infra/KEDA/keda-scale.yml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: finops-tg-scaler
+  # 🎯 아직 규칙이 없으므로 기본 네임스페이스인 default로 지정합니다.
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    # 종원님이 배포할 텔레그램 게이트웨이 디플로이먼트 이름과 일치
+    name: tg-gateway-deployment  
+  
+  minReplicaCount: 1             # 평소 비용 절감을 위해 1개 유지
+  maxReplicaCount: 5             # 트래픽 몰릴 때 최대 5개 확장
+  cooldownPeriod: 300            # 축소 전 5분 동안 관망 대기
+
+  triggers:
+  - type: redis
+    metadata:
+      # 🎯 default 네임스페이스의 표준 Redis DNS 주소 형식으로 지정
+      host: redis-master.default.svc.cluster.local:6379
+      listName: telegram_webhook_queue  
+      listLength: "10"
