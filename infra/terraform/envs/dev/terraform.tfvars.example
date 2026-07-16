@@ -9,4 +9,4 @@ db_password = "12345678"
 
 domain_name = "tuby.shop"
 
-acm_certificate_arn = "아까 복사한 ARN 값"
+acm_certificate_arn = "ACM ARN 값"
