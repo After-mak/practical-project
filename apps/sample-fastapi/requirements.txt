@@ -4,3 +4,7 @@ fastapi==0.115.6
 # uvicorn은 FastAPI 앱을 실행하는 ASGI 서버입니다.
 # standard 옵션은 로컬 개발에 유용한 성능 및 자동 리로드 관련 의존성을 함께 설치합니다.
 uvicorn[standard]==0.34.0
+
+# Redis 공유 Queue와 Prometheus 메트릭을 위한 런타임 의존성입니다.
+redis==5.2.1
+prometheus-client==0.21.1

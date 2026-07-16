@@ -11,8 +11,8 @@ COPY requirements.txt .
 # 컨테이너 이미지 안에 FastAPI 실행 의존성을 설치합니다.
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 애플리케이션 코드를 컨테이너 내부로 복사합니다.
-COPY main.py .
+# API와 Worker가 공유하는 애플리케이션 모듈을 복사합니다.
+COPY *.py ./
 
 # FastAPI 앱이 컨테이너 내부에서 8000번 포트를 사용한다는 것을 명시합니다.
 EXPOSE 8000
