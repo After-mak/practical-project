@@ -2,8 +2,13 @@ x-api-environment: &api-environment
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_DB: 0
+  REDIS_SSL: "false"
+  REDIS_SSL_CERT_REQS: required
+  REDIS_CONNECT_TIMEOUT: 5
   REDIS_QUEUE_KEY: dev:sample:queue
   REDIS_SOCKET_TIMEOUT: 5
+  REDIS_HEALTH_CHECK_INTERVAL: 30
+  REDIS_RETRY_ATTEMPTS: 2
 
 x-api-service: &api-service
   build:

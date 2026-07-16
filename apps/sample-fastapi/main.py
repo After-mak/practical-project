@@ -4,6 +4,7 @@
 메트릭을 Prometheus 형식으로 노출합니다. Queue 소비는 별도 ``worker.py``가 담당합니다.
 """
 
+import logging
 import random
 import time
 from typing import Any
@@ -27,6 +28,7 @@ from queue_service import QueueService, create_queue_service
 
 
 app = FastAPI(title="FinOps Sample FastAPI App")
+logger = logging.getLogger("sample-fastapi")
 
 # 애플리케이션 기본 QueueService입니다. 테스트에서는 FastAPI dependency override로 교체합니다.
 queue_service = create_queue_service()
@@ -46,9 +48,10 @@ def get_queue_service() -> QueueService:
 
 
 def redis_unavailable(exc: RedisError) -> HTTPException:
-    """Redis 연결 오류를 호출자가 이해할 수 있는 HTTP 503으로 변환합니다."""
+    """Redis 연결 오류를 Secret이 포함되지 않은 HTTP 503으로 변환합니다."""
 
-    return HTTPException(status_code=503, detail=f"Redis unavailable: {exc}")
+    logger.warning("Redis operation failed: %s", type(exc).__name__)
+    return HTTPException(status_code=503, detail="Redis unavailable")
 
 
 @app.middleware("http")
