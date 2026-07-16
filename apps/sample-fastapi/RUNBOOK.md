@@ -1,5 +1,7 @@
 # Sample FastAPI 로컬 실행 가이드
 
+> 현재 Queue는 Redis 공유 Queue를 사용합니다. `/ready`, Queue API와 `/metrics`를 정상적으로 사용하려면 Redis가 먼저 실행되어야 합니다. 가장 간단한 전체 실행 방법은 저장소 루트에서 `docker compose up -d --build redis sample-api-1 sample-api-2`를 실행하는 것입니다. Worker는 `docker compose --profile worker up -d --scale queue-worker=2 queue-worker`로 별도 실행합니다. 상세 내용은 `docs/redis-queue-runbook.md`를 참고합니다.
+
 이 문서는 샘플 FastAPI 앱을 로컬에서 실행하고 확인하는 방법을 정리합니다.
 
 Windows PowerShell과 Linux/macOS는 가상환경 활성화 명령이 다르므로 구분해서 실행해야 합니다.

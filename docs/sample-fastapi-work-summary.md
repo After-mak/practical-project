@@ -88,10 +88,11 @@ docker run --rm -p 8000:8000 sample-fastapi:local
 
 | 파일 | 목적 | 실행 조건 |
 | --- | --- | --- |
-| `normal-test.js` | 정상 API 기준 부하 생성 | VU 10명, 1분 |
-| `cpu-spike-test.js` | CPU 사용량 급증 재현 | 최대 VU 30명 |
-| `memory-test.js` | 메모리 사용량 증가 재현 | VU 10명, 1분 |
-| `mixed-test.js` | 정상/CPU/메모리/지연/오류 혼합 | 단계별 VU 변경 |
+| `smoke.js` | 핵심 API와 메트릭 확인 | VU 1명, 1회 |
+| `normal-load.js` | 정상 API 기준 부하 생성 | 최대 VU 10명, 6분 |
+| `cpu-load.js` | CPU 사용량 급증 재현 | 최대 VU 10명 |
+| `memory-load.js` | 메모리 사용량 증가 재현 | VU 5명, 1분 |
+| `soak.js` | 장시간 안정성 확인 | 기본 VU 10명, 30분 |
 
 모든 k6 스크립트는 다음 환경변수를 지원합니다.
 
@@ -102,13 +103,13 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
 로컬 실행 예시:
 
 ```bash
-k6 run k6/normal-test.js
+k6 run k6/normal-load.js
 ```
 
 EKS/Ingress 실행 예시:
 
 ```bash
-k6 run -e BASE_URL=http://<ingress-url> k6/normal-test.js
+k6 run -e BASE_URL=http://<ingress-url> k6/normal-load.js
 ```
 
 ### 3.5 실행 및 테스트 문서
@@ -195,7 +196,7 @@ sample_queue_length 9
 
 ### 4.3 KEDA 검증용 k6 테스트
 
-#### queue-growth-test.js
+#### queue-scale-out.js
 
 목적:
 
@@ -203,56 +204,50 @@ sample_queue_length 9
 - Queue Length 빠른 증가
 - KEDA Scale-Out 조건 생성
 
-단계:
+실행 방식:
 
 ```text
-30초: VU 10명
-1분: VU 30명
-30초: VU 10명
-10초: VU 0명
+기본 초당 등록: 20건
+기본 실행 시간: 2분
+QUEUE_RATE와 TEST_DURATION 환경변수로 조정
 ```
 
-#### queue-consume-test.js
+#### queue-scale-in.js
 
 목적:
 
-- `/api/queue/process` 반복 호출
-- Queue Length 감소
+- `/api/queue/status` 주기적 조회
+- Redis Worker의 Queue 소진 관찰
 - KEDA Scale-In 조건 생성
 
 실행 조건:
 
 ```text
-VU 10명
-실행 시간 1분
+VU 1명
+기본 실행 시간 2분
+종료 시 Queue Length 0을 Threshold로 검사
 ```
 
-#### keda-scale-test.js
+#### karpenter-stress.js
 
 목적:
 
-- 한 번의 테스트에서 Queue 증가와 감소 재현
-- KEDA Scale-Out/Scale-In 흐름 확인
+- 높은 Queue 등록률로 KEDA Worker Pod 확장 유도
+- Pending Pod를 만들어 Karpenter Node 확장 검증 입력 제공
 
 동작 방식:
 
 ```text
-테스트 시작 후 3분까지:
-- join 70%
-- process 30%
-
-3분 이후:
-- join 20%
-- process 80%
+기본 초당 Queue 등록: 100건
+작업당 처리 시간: 1초
+QUEUE_RATE와 TEST_DURATION 환경변수로 조정
 ```
 
 실행 단계:
 
 ```text
-1분: VU 20명
-2분: VU 50명
-1분: VU 20명
-30초: VU 0명
+기본 실행 시간: 5분
+constant-arrival-rate executor 사용
 ```
 
 주요 실행 로직에는 팀원들이 쉽게 이해할 수 있도록 줄별 주석을 추가했습니다.
@@ -305,10 +300,10 @@ docs/workload-requirements.md
 
 | 워크로드 | 목적 | 추천 테스트 |
 | --- | --- | --- |
-| `baseline-app` | 정상 사용량 기준선 확보 | `normal-test.js`, `mixed-test.js` |
-| `overallocated-app` | 실제 사용량보다 과도한 requests 재현 | `normal-test.js`, 약한 `mixed-test.js` |
+| `baseline-app` | 정상 사용량 기준선 확보 | `normal-load.js` |
+| `overallocated-app` | 실제 사용량보다 과도한 requests 재현 | 낮은 VU의 `normal-load.js`, `soak.js` |
 | `idle-app` | 요청이 거의 없는 유휴 상태 재현 | 부하 테스트를 실행하지 않음 |
-| `spike-app` | 특정 시점 CPU 사용량 급증 재현 | `cpu-spike-test.js` |
+| `spike-app` | 특정 시점 CPU 사용량 급증 재현 | `cpu-load.js` |
 | KEDA 대상 앱 | Queue Length 기반 Scale-Out/Scale-In | Queue 테스트 3종 |
 
 ## 7. 로컬 검증 결과
@@ -349,7 +344,7 @@ Docker 환경에서 실제 애플리케이션과 Queue API를 검증했습니다
 
 ## 8. EKS 테스트 준비사항
 
-현재 저장소에는 Kubernetes Deployment, Service, Ingress, Helm Chart 및 KEDA ScaledObject가 포함되어 있지 않습니다. 실제 EKS 테스트를 위해 다른 담당자와 다음 항목을 준비해야 합니다.
+현재 저장소에는 Kubernetes Deployment, Service, Ingress, ServiceMonitor 및 KEDA ScaledObject가 포함되어 있지 않습니다. 실제 EKS 테스트 전 K8s 담당자의 클러스터·Add-on 구성과 환경별 이미지 주소, Prometheus 주소를 확정한 뒤 Manifest를 새로 작성해야 합니다.
 
 1. 샘플 앱 Docker 이미지를 ECR에 푸시
 2. `finops-demo` Namespace에 Deployment와 Service 배포
@@ -362,14 +357,14 @@ Docker 환경에서 실제 애플리케이션과 Queue API를 검증했습니다
 EKS 실행 예시:
 
 ```bash
-k6 run -e BASE_URL=http://<ingress-url> k6/queue-growth-test.js
-k6 run -e BASE_URL=http://<ingress-url> k6/queue-consume-test.js
-k6 run -e BASE_URL=http://<ingress-url> k6/keda-scale-test.js
+k6 run -e BASE_URL=http://<ingress-url> -e QUEUE_RATE=20 k6/queue-scale-out.js
+k6 run -e BASE_URL=http://<ingress-url> k6/queue-scale-in.js
+k6 run -e BASE_URL=http://<ingress-url> -e QUEUE_RATE=100 k6/karpenter-stress.js
 ```
 
 ## 9. 현재 구현의 제약사항
 
-Queue Length는 Redis가 아닌 FastAPI 프로세스 메모리에 저장됩니다.
+Queue Length는 Redis 공유 Queue의 `LLEN`으로 조회합니다. 다만 Worker는 계획에 따라 `BLPOP`을 사용하므로 작업을 가져온 직후 비정상 종료하면 해당 작업을 잃을 수 있습니다.
 
 따라서 다음 제약이 있습니다.
 

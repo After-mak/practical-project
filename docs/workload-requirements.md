@@ -98,7 +98,7 @@ resources:
     memory: "256Mi"
 ```
 
-추천 테스트: `normal-test.js`, `mixed-test.js`
+추천 테스트: `normal-load.js`
 
 ### overallocated-app
 
@@ -114,7 +114,7 @@ resources:
     memory: "1Gi"
 ```
 
-추천 테스트: `normal-test.js` 또는 낮은 강도의 `mixed-test.js`
+추천 테스트: 낮은 VU의 `normal-load.js` 또는 `soak.js`
 
 ### idle-app
 
@@ -146,7 +146,7 @@ resources:
     memory: "512Mi"
 ```
 
-추천 테스트: `cpu-spike-test.js`
+추천 테스트: `cpu-load.js`
 
 ## 4. Service 및 Ingress 요구사항
 
