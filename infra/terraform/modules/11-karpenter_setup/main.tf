@@ -17,5 +17,6 @@ module "karpenter" {
 
   # Spot 인스턴스 중단 알림을 받기 위한 SQS 큐 및 EventBridge 생성
   # (Karpenter가 SQS 큐를 구독하여 노드를 안전하게 종료시킴)
-  enable_spot_termination_handling = true
+  # enable_spot_termination_handling = true
+  enable_spot_termination = true
 }
