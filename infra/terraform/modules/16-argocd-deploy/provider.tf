@@ -8,7 +8,7 @@ terraform {
     # terraform 으로 k8s 자원들을 provision 할수 있도록 provider 추가 
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 2.30" 
+      version = "~> 2.30"
     }
   }
 }
@@ -28,16 +28,16 @@ data "kubernetes_service" "argocd_server" {
 # ArgoCD API 접속 프로바이더
 provider "argocd" {
   # cluster_ip (vpn 연결된 eks 에서 사용할 예정)
-  server_addr   = "${data.kubernetes_service.argocd_server.spec[0].cluster_ip}:80" 
+  server_addr = "${data.kubernetes_service.argocd_server.spec[0].cluster_ip}:80"
   # external_ip
   # server_addr = "${data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].ip}:80"
 
   # 초기 로그인 계정 정보
-  username      = "admin"
+  username = "admin"
   # 설정한 argocd 비밀번호
-  password      = "@abcd1234" 
+  password = "@abcd1234"
 
   # --insecure 로 HTTPS를 껐기 때문에 아래 옵션이 반드시 필요
-  plain_text    = true
-  insecure      = true 
+  plain_text = true
+  insecure   = true
 }
