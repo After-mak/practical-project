@@ -1,4 +1,4 @@
-name: GitOps Auto Rollback
+name: Auto Rollback (Git Revert)
 
 on:
   workflow_dispatch: # 텔레그램이나 GitHub UI에서 API로 호출할 수 있게 설정
