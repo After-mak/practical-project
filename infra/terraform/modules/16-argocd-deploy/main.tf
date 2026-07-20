@@ -73,8 +73,8 @@ resource "argocd_application" "mak-app" {
     }
     sync_policy {
       automated {
-        prune     = true
-        self_heal = true
+        prune         = true
+        self_heal     = true # Git 상태와 다르면 K8s 리소스를 자동으로 맞춤
       }
       sync_options = ["CreateNamespace=true"]
     }
@@ -94,19 +94,7 @@ resource "argocd_application" "postgres-app" {
       target_revision = "main"
 
       # 2. Chart.yaml이 들어있는 폴더 경로 지정
-      path = "charts/postgres"
-
-      # 3. 폴더가 Helm 구조라면 helm 블록을 통해 값을 제어할 수 있습니다!
-      # helm {
-      #   # Git 폴더 안에 있는 특정 values 파일을 덮어쓰고 싶을 때
-      #   value_files = ["values-prod.yaml"] 
-
-      #   # 또는 개별 변수를 직접 꽂아 넣고 싶을 때
-      #   parameter {
-      #     name      = "image.tag"
-      #     value     = "v1.0.5"
-      #   }
-      # }
+      path            = "charts/postgres" 
     }
 
     destination {
@@ -115,8 +103,8 @@ resource "argocd_application" "postgres-app" {
     }
     sync_policy {
       automated {
-        prune     = true
-        self_heal = true
+        prune       = true
+        self_heal   = true # Git 상태와 다르면 K8s 리소스를 자동으로 맞춤     
       }
       sync_options = ["CreateNamespace=true"]
     }
