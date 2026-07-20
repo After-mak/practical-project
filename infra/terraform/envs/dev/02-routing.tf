@@ -59,6 +59,7 @@ resource "aws_route_table" "project03_private_rt_a" {
   route {
     cidr_block = "0.0.0.0/0"
     network_interface_id = module.project03_nat_instance_A.primary_network_interface_id
+
   }
 
   depends_on = [module.project03_nat_instance_A]

@@ -1,0 +1,10 @@
+# alb 생성 gateway
+apiVersion: gateway.k8s.aws/v1beta1
+kind: LoadBalancerConfiguration
+metadata:
+  name: my-gateway-lbconfig
+  namespace: default
+spec:
+  scheme: internet-facing
+  securityGroups: 
+    - project03-alb-sg
