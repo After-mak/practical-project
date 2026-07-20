@@ -30,19 +30,27 @@ done
 echo "[1/8] AWS identity 확인"
 aws sts get-caller-identity >/dev/null
 
-echo "[2/8] Sample FastAPI 전용 ECR 생성"
+echo "[2/8] Terraform Backend와 Module 초기화"
+terraform -chdir="${TF_DIR}" init -backend-config=backend.hcl
+
+echo "[3/8] Sample FastAPI 전용 ECR 생성"
+# Root Module의 RDS/Tailscale 변수는 필수로 선언돼 있지만 ECR Target과는 무관합니다.
+# 불필요한 Secret 입력을 피하도록 이 Target Apply에만 사용되지 않는 값을 전달합니다.
 terraform -chdir="${TF_DIR}" apply \
   -var-file="${TFVARS_FILE}" \
+  -var="db_user=ecr-target-unused" \
+  -var="db_password=ecr-target-unused" \
+  -var="tailscale_auth_key=ecr-target-unused" \
   -target=module.sample_fastapi_ecr
 
 ECR_REPOSITORY_URL="$(terraform -chdir="${TF_DIR}" output -raw sample_fastapi_ecr_repository_url)"
 REDIS_HOST="$(terraform -chdir="${TF_DIR}" output -raw redis_primary_endpoint)"
 IMAGE_URI="${ECR_REPOSITORY_URL}:${IMAGE_TAG}"
 
-echo "[3/8] Docker 이미지 Build"
+echo "[4/8] Docker 이미지 Build"
 docker build --pull -t "sample-fastapi:${IMAGE_TAG}" "${ROOT_DIR}/apps/sample-fastapi"
 
-echo "[4/8] ECR 로그인 및 이미지 Push"
+echo "[5/8] ECR 로그인 및 이미지 Push"
 aws ecr get-login-password --region "${AWS_REGION}" \
   | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URL%%/*}"
 docker tag "sample-fastapi:${IMAGE_TAG}" "${IMAGE_URI}"
@@ -53,11 +61,11 @@ aws ecr describe-images \
   --image-ids imageTag="${IMAGE_TAG}" \
   --query 'imageDetails[0].{Digest:imageDigest,Tags:imageTags,Size:imageSizeInBytes}'
 
-echo "[5/8] EKS kubeconfig 갱신"
+echo "[6/8] EKS kubeconfig 갱신"
 aws eks update-kubeconfig --region "${AWS_REGION}" --name "${EKS_CLUSTER_NAME}"
 kubectl get nodes
 
-echo "[6/8] Namespace와 ElastiCache ConfigMap 적용"
+echo "[7/8] Namespace와 ElastiCache ConfigMap 적용"
 kubectl apply -f "${SCRIPT_DIR}/namespace.yaml"
 kubectl -n "${NAMESPACE}" create configmap sample-fastapi-config \
   --from-literal=REDIS_HOST="${REDIS_HOST}" \
@@ -72,14 +80,14 @@ kubectl -n "${NAMESPACE}" create configmap sample-fastapi-config \
   --from-literal=REDIS_QUEUE_KEY="${QUEUE_KEY}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "[7/8] 정식 FastAPI와 Worker Deployment 적용"
+echo "[8/8] 정식 FastAPI와 Worker Deployment 적용"
 sed "s|sample-fastapi:replace-me|${IMAGE_URI}|g" "${SCRIPT_DIR}/fastapi-deployment.yaml" \
   | kubectl apply -f -
 kubectl apply -f "${SCRIPT_DIR}/fastapi-service.yaml"
 sed "s|sample-fastapi:replace-me|${IMAGE_URI}|g" "${SCRIPT_DIR}/worker-deployment.yaml" \
   | kubectl apply -f -
 
-echo "[8/8] FastAPI Rollout 확인"
+echo "FastAPI Rollout 확인"
 kubectl -n "${NAMESPACE}" rollout status deployment/sample-fastapi --timeout=180s
 kubectl -n "${NAMESPACE}" get deployment,pod,service,configmap
 
