@@ -1,0 +1,12 @@
+# aws 공유 계정 접근
+aws_profile = "admin-본인프로필"
+
+tailscale_auth_key = "tskey-auth-kmbLTWh5fB11CNTRL-LpQfaDJ99xNszMJpzLAwwNysn6SoSYWh"
+
+db_user = "scott"
+
+db_password = "12345678"
+
+domain_name = "tuby.shop"
+
+acm_certificate_arn = "ACM ARN 값"
