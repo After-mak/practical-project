@@ -1,6 +1,6 @@
 terraform {
   backend "s3" {
-    bucket       = "tfstate-bucket-95ada58e"
+    bucket       = "tfstate-bucket-95ada58d"
     key          = "mak-tf-lock"
     region       = "ap-northeast-2"
     use_lockfile = true

@@ -20,6 +20,7 @@ module "project03_public_subnet_a" {
   az            = var.azs[0]
   map_public_ip = true
   name          = "project03-public-subnet-a"
+  cluster_role_subnet = 1
 }
 
 # Public Subnet C (AZ-c)
@@ -31,6 +32,7 @@ module "project03_public_subnet_c" {
   az            = var.azs[1]
   map_public_ip = true
   name          = "project03-public-subnet-c"
+  cluster_role_subnet = 1
 }
 
 
