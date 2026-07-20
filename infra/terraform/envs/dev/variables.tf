@@ -1,19 +1,34 @@
-variable "tailscale_auth_key" {
+variable "aws_profile" {
+  description = "AWS CLI 프로필 이름"
   type        = string
-  description = "tailscale auth key"
+  default     = "admin-seonggyu"
 }
 
 variable "db_user" {
+  description = "RDS 관리자 계정 이름"
   type        = string
-  description = "rds에 들어갈 db user name"
 }
 
 variable "db_password" {
+  description = "RDS 관리자 계정 비밀번호"
   type        = string
-  description = "rds에 들어갈 db password"
+  sensitive   = true
 }
 
-variable "aws_profile" {
+variable "tailscale_auth_key" {
+  description = "Tailscale 인증 키"
   type        = string
-  description = "팀원 각자의 AWS CLI 프로필 이름"
+  sensitive   = true
+}
+
+variable "domain_name" {
+  description = "서비스 도메인 이름"
+  type        = string
+  default     = "tuby.shop"
+}
+
+variable "acm_certificate_arn" {
+  description = "init에서 발급받은 ACM 인증서 ARN"
+  type        = string
+  default     = ""
 }

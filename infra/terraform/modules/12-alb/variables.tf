@@ -19,3 +19,9 @@ variable "alb_sg_id" {
   description = "ALB 보안그룹 ID"
   type        = string
 }
+
+variable "acm_certificate_arn" {
+  description = "HTTPS 설정 시 사용할 ACM 인증서 ARN (선택)"
+  type        = string
+  default     = ""
+}

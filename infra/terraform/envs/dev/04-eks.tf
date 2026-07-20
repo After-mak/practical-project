@@ -14,7 +14,7 @@ module "project03_eks" {
 
   node_security_group_ids = [module.security_groups.eks_node_sg_id]
 
-  instance_types = ["t3.small"]
+  instance_types = ["t3.small"] # 프리티어 제한
   ami_type       = "AL2023_x86_64_STANDARD"
   min_size       = 2
   max_size       = 3

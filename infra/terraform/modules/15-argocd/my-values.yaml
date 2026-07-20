@@ -1,0 +1,12 @@
+# ArgoCD 웹서버(ui) 의 네트워크 설정 전달하기
+server:
+  service:
+    # 외부 노출을 차단하고 Gateway API를 통해서만 진입 가능하도록 ClusterIP 고정
+    type: ClusterIP
+    # 기본 서비스 포트를 명확히 명시 (HTTPRoute 연결용)
+    servicePortHTTP: 80
+    
+  extraArgs:
+    # Gateway API가 앞단에서 라우팅 및 SSL 종단(Terminating)을 처리하므로, 
+    # 내부 웹서버는 안전하고 가벼운 HTTP 통신이 가능하도록 세팅
+    - --insecure
