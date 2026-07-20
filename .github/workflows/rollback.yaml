@@ -29,6 +29,7 @@ jobs:
           # --no-edit 옵션으로 커밋 메시지 입력 창이 뜨는 것을 방지하고 자동 커밋
           git revert --no-edit HEAD
 
-      - name: Push Reverted Commit to Main
+      - name: Push Reverted Commit 
         run: |
-          git push origin main
+          # API 요청 시 들어온 ref(main 또는 dev)로 자동으로 Push 
+          git push origin ${{ github.ref_name }}

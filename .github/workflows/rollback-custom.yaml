@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
 
       - name: Update image.tag in values.yaml
         run: |
@@ -32,5 +34,5 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore(rollback): Rollback image.tag to ${{ github.event.inputs.target_tag }}"
-          git push origin main
+          git commit -am "chore(rollback): [${{ github.event.inputs.target_branch }}] Rollback image.tag to ${{ github.event.inputs.target_tag }}"
+          git push origin ${{ github.event.inputs.target_branch }}
