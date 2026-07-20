@@ -31,7 +31,7 @@ echo "[1/8] AWS identity 확인"
 aws sts get-caller-identity >/dev/null
 
 echo "[2/8] Terraform Backend와 Module 초기화"
-terraform -chdir="${TF_DIR}" init -backend-config=backend.hcl
+terraform -chdir="${TF_DIR}" init -reconfigure -backend-config=backend.hcl
 
 echo "[3/8] Sample FastAPI 전용 ECR 생성"
 # Root Module의 RDS/Tailscale 변수는 필수로 선언돼 있지만 ECR Target과는 무관합니다.
