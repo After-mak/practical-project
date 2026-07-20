@@ -1,0 +1,55 @@
+# Prometheus/Grafana/Alertmanager 커스텀 설정
+# 담당: 한윤성 (FinOps/모니터링 파트)
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 256Mi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: 'null'
+      group_by: ['alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      routes:
+        - receiver: 'telegram'
+          matchers:
+            - namespace = "default"
+    receivers:
+      - name: 'null'
+      - name: 'telegram'
+        telegram_configs:
+          # TODO: 실제 토큰/chat_id는 여기에 직접 넣지 말고 terraform 변수로 주입 예정
+          - bot_token: '<TELEGRAM_BOT_TOKEN_PLACEHOLDER>'
+            chat_id: 0
+            parse_mode: 'HTML'
+
+prometheus:
+  prometheusSpec:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    retention: 7d
+
+grafana:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+  # TODO: 운영 전 admin 비밀번호도 시크릿으로 교체
+  adminPassword: "changeme"
