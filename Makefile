@@ -5,8 +5,8 @@
 # =============================================================
 
 # ── 경로 및 환경 변수 설정 ──────────────────────────────────
-TF_DIR := infra/terraform
-TF_DIR2 := infra/terraform/init
+TF_DEV_DIR   := infra/terraform/envs/dev
+TF_INIT_DIR  := infra/terraform/init
 ANSIBLE_DIR  := infra/ansible
 TF_VARS_FILE := infra/terraform/terraform.tfvars
 
@@ -20,9 +20,7 @@ export AWS_PROFILE := $(AWS_PROF)
 
 # 모든 명령어를 .PHONY에 등록하여 파일 이름 충돌 방지 (가독성을 위해 분할)
 .PHONY: help setup check init fmt validate plan apply apply-auto output destroy
-.PHONY: ping k8s ai monitor
-.PHONY: gitops-sync
-.PHONY: k6-test attack-test log-check
+
 
 # 기본 명령어 (명령어 없이 make만 쳤을 때 가이드 출력)
 help:
@@ -37,20 +35,10 @@ help:
 	@echo "  make fmt           : 코드 스타일 정렬"
 	@echo "  make validate      : 문법 검사"
 	@echo "  make plan          : 인프라 변경사항 시뮬레이션"
+	@echo "  make apply-auto    : AWS 실제 배포 (승인)"
 	@echo "  make apply-auto    : AWS 실제 배포 (승인 생략)"
 	@echo "  make output        : 배포된 AWS 인프라 정보 확인"
 	@echo "  make destroy       : AWS 인프라 전체 삭제"
-	@echo " [Ansible - 온프레미스 & AI & 모니터링]"
-	@echo "  make ping      	: 온프레미스 서버 연결 상태 체크"
-	@echo "  make k8s       	: 온프레미스 Kubernetes 클러스터 구축"
-	@echo "  make ai        	: 로컬 LLM 및 AI 실행 환경 구성"
-	@echo "  make monitor   	: Prometheus/Grafana 모니터링 구축"
-	@echo " [CI/CD & GitOps]"
-	@echo "  make gitops-sync   : Argo CD 애플리케이션 수동 동기화"
-	@echo " [보안 및 가용성 검증]"
-	@echo "  make k6-test      	: k6 기반 부하 테스트 수행"
-	@echo "  make attack-test   : WAF 보안 정책 차단 테스트 (SQLi, XSS)"
-	@echo "  make log-check     : AI 이상 탐지용 통합 로그 스트리밍 확인"
 	@echo "============================================================="
 
 
@@ -65,35 +53,35 @@ check:
 # ── Terraform ────────────────────────────────────────────────
 init:
 	@echo "▶ 테라폼 백엔드 초기화 중..."
-	cd $(TF_DIR) && terraform init -backend-config=init/backend.hcl
+	cd $(TF_DEV_DIR) && terraform init -backend-config=backend.hcl
 
 fmt:
 	@echo "▶ 테라폼 코드 포맷 정렬 중..."
-	cd $(TF_DIR) && terraform fmt -recursive
+	cd $(TF_DEV_DIR) && terraform fmt -recursive
 
 validate:
 	@echo "▶ 테라폼 문법 및 유효성 검사 중..."
-	cd $(TF_DIR) && terraform validate
+	cd $(TF_DEV_DIR) && terraform validate
 
 plan:
 	@echo "▶ AWS 인프라 변경 예측(Plan) 실행 중..."
-	cd $(TF_DIR) && terraform plan
+	cd $(TF_DEV_DIR) && terraform plan
 
 apply:
 	@echo "▶ AWS 인프라 실배포 진행 중 (수동 승인 필요)..."
-	cd $(TF_DIR) && terraform apply -parallelism=3
+	cd $(TF_DEV_DIR) && terraform apply -parallelism=3
 
 apply-auto:
 	@echo "▶ AWS 인프라 고속 자동 배포 중 (FinOps 적용)..."
-	cd $(TF_DIR) && terraform apply --auto-approve -parallelism=3
+	cd $(TF_DEV_DIR) && terraform apply --auto-approve -parallelism=3
 
 output:
 	@echo "▶ 배포된 AWS 리소스 정보(ALB/EKS/ECR/WAF) 출력..."
-	cd $(TF_DIR) && terraform output
+	cd $(TF_DEV_DIR) && terraform output
 
 destroy:
 	@echo "⚠️  주의: AWS 인프라 자원 삭제중..."
-	cd $(TF_DIR) && terraform destroy --auto-approve 
+	cd $(TF_DEV_DIR) && terraform destroy --auto-approve 
 
 
 # ── Ansible ───────────────────────────────────────────────────	

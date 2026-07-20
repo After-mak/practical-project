@@ -15,6 +15,6 @@ module "karpenter" {
   # Karpenter 노드들이 EKS 클러스터에 합류할 수 있도록 Access Entry 생성
   create_access_entry = true
 
-  # Spot 인스턴스 중단 알림을 받기 위한 SQS 큐 및 EventBridge 생성
   # v20 모듈부터는 SQS 생성이 기본값(Default: true)으로 켜져 있어서 옵션 생략이 가능합니다.
+  enable_spot_termination = true
 }

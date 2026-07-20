@@ -3,7 +3,9 @@ name: Build and Push to Amazon ECR & Update GitOps Tag
 on:
   push:
     branches: [ "main", "dev" ] # main,dev  브랜치에 소스코드가 push되면 작동
-
+    # ── 🎯app-test 폴더 안의 파일이 변경될 때만 워크플로우를 가동
+    paths:
+      - 'app-test/**'
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
