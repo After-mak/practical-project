@@ -18,6 +18,9 @@ crash.log
 # S3 이름 노출 방지
 backend.hcl
 
+# dev 브랜치에서 관리하는 문서 제외 규칙입니다.
+/docs
+
 # === Python/FastAPI 로컬 실행 생성물 ===
 # __pycache__와 pyc 파일은 Python 실행 중 자동 생성되므로 Git에 올리지 않습니다.
 __pycache__/
