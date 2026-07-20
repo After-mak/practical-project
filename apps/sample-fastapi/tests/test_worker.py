@@ -3,12 +3,14 @@
 import fakeredis
 
 from queue_service import QueueService
+from metrics import WORKER_PROCESSED_TOTAL
 from worker import QueueWorker
 
 
 def test_worker_processes_each_queued_job_once():
     service = QueueService(fakeredis.FakeRedis(decode_responses=True), "test:queue")
     worker = QueueWorker(service, processing_seconds=0)
+    processed_before = WORKER_PROCESSED_TOTAL._value.get()
     first = service.enqueue("first")
     second = service.enqueue("second")
 
@@ -17,3 +19,4 @@ def test_worker_processes_each_queued_job_once():
     assert worker.run_once(timeout=0) is False
     assert service.length() == 0
     assert first["id"] != second["id"]
+    assert WORKER_PROCESSED_TOTAL._value.get() == processed_before + 2

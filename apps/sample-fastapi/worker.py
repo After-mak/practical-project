@@ -20,6 +20,7 @@ from metrics import (
     QUEUE_LENGTH,
     QUEUE_PROCESSED_TOTAL,
     WORKER_ACTIVE_JOBS,
+    WORKER_PROCESSED_TOTAL,
     WORKER_PROCESSING_DURATION_SECONDS,
 )
 from queue_service import QueueService, create_queue_service
@@ -78,6 +79,7 @@ class QueueWorker:
         try:
             self.process_job(job)
             QUEUE_PROCESSED_TOTAL.inc()
+            WORKER_PROCESSED_TOTAL.inc()
             logger.info("Processed job id=%s type=%s", job["id"], job["type"])
         except Exception:
             QUEUE_FAILED_TOTAL.inc()

@@ -12,7 +12,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # API와 Worker가 공유하는 애플리케이션 모듈을 복사합니다.
-COPY *.py ./
+COPY --chown=10001:10001 *.py ./
+
+# 컨테이너를 root 권한으로 실행하지 않도록 전용 사용자를 생성합니다.
+RUN groupadd --gid 10001 sampleapp \
+    && useradd --uid 10001 --gid sampleapp --no-create-home sampleapp
+
+USER 10001:10001
 
 # FastAPI 앱이 컨테이너 내부에서 8000번 포트를 사용한다는 것을 명시합니다.
 EXPOSE 8000

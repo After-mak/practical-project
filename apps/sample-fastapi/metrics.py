@@ -16,6 +16,9 @@ QUEUE_PROCESSED_TOTAL = Counter("sample_queue_processed_total", "Jobs processed 
 QUEUE_FAILED_TOTAL = Counter("sample_queue_failed_total", "Queue or worker operation failures")
 
 # 각 Worker 프로세스가 현재 처리 중인 작업과 처리 시간 분포를 기록합니다.
+WORKER_PROCESSED_TOTAL = Counter(
+    "worker_processed_total", "Jobs processed successfully by this worker"
+)
 WORKER_ACTIVE_JOBS = Gauge("sample_worker_active_jobs", "Jobs currently processed by this worker")
 WORKER_PROCESSING_DURATION_SECONDS = Histogram(
     "sample_worker_processing_duration_seconds",
