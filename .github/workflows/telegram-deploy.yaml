@@ -31,9 +31,7 @@ jobs:
 
         # 2. Image Tag 변경 (값이 들어온 경우에만)
         if [ -n "$IMAGE_TAG" ]; then
-          # 소수점 변환 로직
-          export CONVERTED_TAG=$(awk "BEGIN {printf \"%.1f\", $IMAGE_TAG * 0.1}")
-          yq -i ".image.tag = env(CONVERTED_TAG) | .image.tag style=\"double\"" charts/mak-app/values.yaml
+          yq -i ".image.tag = env(IMAGE_TAG) | .image.tag style=\"double\"" charts/mak-app/values.yaml
         fi
         
         echo "=== 수정된 values.yaml 내용 확인 ==="
