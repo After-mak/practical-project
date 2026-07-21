@@ -29,12 +29,15 @@ jobs:
 
     # # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
     - name: Build, tag, and push image to Amazon ECR
-      working-directory: ./app-test
+      working-directory: ./apps
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름을 적어주세요.
-        IMAGE_TAG: "${{ github.run_number }}" # 자동으로 1씩 증가하는 빌드 번호
+        ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름
       run: |
+        # 소수점 태그(1.0)
+        IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
+        echo "빌드할 이미지 태그: $IMAGE_TAG"
+
         # ECR 주소와 태그를 매핑하여 빌드
         docker build \
           -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
