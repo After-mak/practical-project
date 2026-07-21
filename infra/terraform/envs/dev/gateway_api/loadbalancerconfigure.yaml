@@ -1,10 +1,11 @@
-# alb 생성 gateway
+# alb의 sg를 설정하는 부분과 같이 부가 설정을 담당하는 yaml
 apiVersion: gateway.k8s.aws/v1beta1
 kind: LoadBalancerConfiguration
 metadata:
   name: my-gateway-lbconfig
   namespace: default
 spec:
+  loadBalancerName: project03-alb
   scheme: internet-facing
   securityGroups: 
     - project03-alb-sg

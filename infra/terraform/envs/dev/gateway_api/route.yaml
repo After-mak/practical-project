@@ -14,9 +14,3 @@ spec:
       backendRefs:
         - name: my-app-service
           port: 80
-          filters:
-            - type: ExtensionRef
-              extensionRef:
-                group: gateway.k8s.aws
-                kind: TargetGroupConfiguration
-                name: my-app-tg-config
