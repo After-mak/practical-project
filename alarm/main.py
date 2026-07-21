@@ -17,7 +17,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
-GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
+GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "practical-project")
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")  # 종원님 명세: ref -> "dev"
 
 GRAFANA_URL = "https://grafana.tuby.shop"
