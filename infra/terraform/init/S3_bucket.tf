@@ -19,7 +19,7 @@ resource "random_id" "bucket_suffix" {
 # S3 버킷 생성 - 상태 파일(.tfstate) 저장용
 resource "aws_s3_bucket" "tfstate_bucket" {
   # 고유한 이름을 보장하기 위해 뒤에 랜덤 16진수 접미사를 붙입니다.
-  bucket        = "tfstate-bucket-95ada58e"
+  bucket        = "tfstate-bucket-95ada58d"
   force_destroy = false # 실수로 상태 파일이 담긴 버킷이 통째로 날아가는 것을 방지
 
   lifecycle {

@@ -3,13 +3,13 @@
 # ===========================
 # terraform 이 helm으로 eks에 설치할 수 있게 정보 알려주는 내용
 provider "helm" {
-kubernetes = {
-host                   = module.project03_eks.cluster_endpoint
-cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
-exec = {
-api_version = "client.authentication.k8s.io/v1beta1"
-command     = "aws"
-args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name]
+  kubernetes = {
+    host                   = module.project03_eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
+    exec = {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name, "--profile", var.aws_profile]
     }
   }
 }
@@ -72,31 +72,50 @@ resource "aws_iam_role_policy_attachment" "aws_lb_controller" {
   # ↑ 아까 GitHub에서 받은 "권한 카드"
 }
 
-# 공식 Gateway API CRD 설치 (kubectl 명령어 자동화)
-resource "null_resource" "gateway_api_crds" {
-  triggers = {
-    gateway_api_version = "v1.5.0" 
-  }                                
+# ===========================
+# 공식 Kubernetes Gateway API CRD 설치
+# Terraform이 직접 클러스터에 적용 (local-exec 없음)
+# ===========================
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-kubeconfig --region ap-northeast-2 --name ${module.project03_eks.cluster_name} --profile ${var.aws_profile}
-      kubectl apply -k "github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.5.0"
-    EOT
-  }
+# GitHub release에서 Gateway API CRD YAML 다운로드
+data "http" "gateway_api_crds_yaml" {
+  url = "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml"
 }
-resource "null_resource" "lbc_gateway_crds" {
-  triggers = {
-    lbc_version = "v3.4.0"
-  }
 
-  provisioner "local-exec" {
-    command = <<-EOT
-      aws eks update-kubeconfig --region ap-northeast-2 --name ${module.project03_eks.cluster_name} --profile ${var.aws_profile}
-      kubectl apply -f "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v3.4.0/config/crd/gateway/gateway-crds.yaml"
-    EOT
-  }
-  depends_on = [null_resource.gateway_api_crds]
+# 멀티 도큐먼트 YAML을 개별 manifest로 분리
+data "kubectl_file_documents" "gateway_api_crds" {
+  content = data.http.gateway_api_crds_yaml.response_body
+}
+
+# 각 CRD를 클러스터에 직접 적용
+resource "kubectl_manifest" "gateway_api_crds" {
+  for_each          = data.kubectl_file_documents.gateway_api_crds.manifests
+  yaml_body         = each.value
+  server_side_apply = true
+  force_conflicts   = true
+}
+
+# ===========================
+# AWS LBC 전용 Gateway CRD 설치
+# ===========================
+
+# LBC Gateway CRD YAML 다운로드
+data "http" "lbc_gateway_crds_yaml" {
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v3.4.0/config/crd/gateway/gateway-crds.yaml"
+}
+
+# 멀티 도큐먼트 YAML 파싱
+data "kubectl_file_documents" "lbc_gateway_crds" {
+  content = data.http.lbc_gateway_crds_yaml.response_body
+}
+
+# 각 LBC CRD를 클러스터에 직접 적용
+resource "kubectl_manifest" "lbc_gateway_crds" {
+  for_each          = data.kubectl_file_documents.lbc_gateway_crds.manifests
+  yaml_body         = each.value
+  server_side_apply = true
+  force_conflicts   = true
+  depends_on        = [kubectl_manifest.gateway_api_crds]
 }
 
 # ALB Controller를 Helm으로 EKS에 설치
@@ -117,7 +136,7 @@ resource "helm_release" "aws_lb_controller" {
 
   depends_on = [
     aws_iam_role_policy_attachment.aws_lb_controller,
-    null_resource.gateway_api_crds,
-    null_resource.lbc_gateway_crds
+    kubectl_manifest.gateway_api_crds,
+    kubectl_manifest.lbc_gateway_crds
   ]
 }

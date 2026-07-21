@@ -35,4 +35,3 @@ provider "kubernetes" {
     args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name]
   }
 }
-

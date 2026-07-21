@@ -9,3 +9,6 @@ spec:
   scheme: internet-facing
   securityGroups: 
     - project03-alb-sg
+  listenerConfigurations:
+    - protocolPort: HTTPS:443
+      defaultCertificate: "${certificate_arn}"

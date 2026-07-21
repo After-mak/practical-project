@@ -1,19 +1,39 @@
 # ############################################
 # # 6. ALB (Public Load Balancer)
 # ############################################
+# kubectl을 이용하여 eks cluster에 접근할 수 있게 허용해주는 부분
+provider "kubectl" {
+  host                   = module.project03_eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
+  load_config_file       = false
+  lazy_load              = true
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name, "--profile", var.aws_profile]
+  }
+}
+
+data "aws_acm_certificate" "this" {
+  domain   = var.domain_name
+  statuses = ["ISSUED"]
+}
+
 resource "kubectl_manifest" "gatewayclass" {
   yaml_body  = file("${path.module}/gateway_api/gatewayclass.yaml")
-  depends_on = [null_resource.gateway_api_crds, helm_release.aws_lb_controller]
+  depends_on = [kubectl_manifest.gateway_api_crds, helm_release.aws_lb_controller]
 }
 
 resource "kubectl_manifest" "lb_config" {
-  yaml_body  = file("${path.module}/gateway_api/loadbalancerconfigure.yaml")
-  depends_on = [null_resource.lbc_gateway_crds, helm_release.aws_lb_controller]
+  yaml_body = templatefile("${path.module}/gateway_api/loadbalancerconfigure.yaml", {
+    certificate_arn = data.aws_acm_certificate.this.arn
+  })
+  depends_on = [kubectl_manifest.lbc_gateway_crds, helm_release.aws_lb_controller]
 }
 
 resource "kubectl_manifest" "target_group_config" {
   yaml_body  = file("${path.module}/gateway_api/targetgroupconfigure.yaml")
-  depends_on = [null_resource.lbc_gateway_crds, kubectl_manifest.service]
+  depends_on = [kubectl_manifest.lbc_gateway_crds, kubectl_manifest.service]
 }
 
 resource "kubectl_manifest" "gateway" {
@@ -36,29 +56,21 @@ resource "kubectl_manifest" "deploy" {
   depends_on = [kubectl_manifest.gateway]
 }
 
-# ALB 대기
-resource "null_resource" "wait_for_alb" {
-  triggers = {
-    gateway_id = kubectl_manifest.gateway.id
-  }
-  
-  provisioner "local-exec" {
-    command = <<-EOT
-      for i in $(seq 1 30); do
-        STATUS=$(aws elbv2 describe-load-balancers \
-          --names "project03-alb" \
-          --region ap-northeast-2 \
-          --query "LoadBalancers[0].State.Code" \
-          --output text 2>/dev/null || echo "notfound")
-        if [ "$STATUS" = "active" ]; then exit 0; fi
-        sleep 10
-      done
-      exit 1
-    EOT
-  }
+# ALB 대기 (이 다음 route53을 달아야되기 때문에 pod에서 요청 넘기고 실제 alb가 생성되기까지 기다리기) 
+resource "time_sleep" "wait_for_alb" {
+  depends_on      = [kubectl_manifest.gateway]
+  create_duration = "300s"
 }
 
 data "aws_lb" "this" {
   name       = "project03-alb"
-  depends_on = [null_resource.wait_for_alb]
+  depends_on = [time_sleep.wait_for_alb]
 }
+
+#terraform destroy `
+#  -target=kubectl_manifest.route `
+#  -target=kubectl_manifest.gateway `
+#  -target=kubectl_manifest.gatewayclass `
+#  -target=kubectl_manifest.target_group_config `
+#  -target=kubectl_manifest.lb_config `
+#  --auto-approve
