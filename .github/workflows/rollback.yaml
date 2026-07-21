@@ -7,6 +7,8 @@ on:
         description: '롤백 사유'
         required: false
         default: 'ChatOps Triggered Rollback'
+  repository_dispatch: # 텔레그램 봇 웹훅 호출
+    types: [telegram-rollback]
 
 jobs:
   revert-commit:
@@ -15,6 +17,7 @@ jobs:
       - name: Checkout Helm Chart Repository
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITOPS_TOKEN }}
           fetch-depth: 0 # 이전 커밋 이력을 가져오기 위해 0으로 설정
 
       - name: Configure Git User
@@ -31,5 +34,10 @@ jobs:
 
       - name: Push Reverted Commit 
         run: |
-          # API 요청 시 들어온 ref(main 또는 dev)로 자동으로 Push 
-          git push origin ${{ github.ref_name }}
+         # repository_dispatch인 경우 payload의 target_branch를 사용하고, 없으면 main 사용
+          TARGET_BRANCH="${{ github.event.client_payload.target_branch }}"
+          if [ -z "$TARGET_BRANCH" ]; then
+            TARGET_BRANCH="main"
+          fi
+          
+          git push origin $TARGET_BRANCH
