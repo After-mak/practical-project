@@ -7,8 +7,8 @@ metadata:
     app.kubernetes.io/name: sample-fastapi
     app.kubernetes.io/component: worker
 spec:
-  # Queue Length 3을 먼저 검증한 후 deploy.sh 안내에 따라 1개로 확장합니다.
-  replicas: 0
+  # KEDA 적용 전 기본 Worker 1개를 유지하며, 추후 minReplicaCount도 1로 맞춥니다.
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: sample-fastapi

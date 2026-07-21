@@ -5,3 +5,4 @@ metadata:
   labels:
     app.kubernetes.io/name: sample-fastapi
     app.kubernetes.io/part-of: finops-validation
+    monitoring: prometheus

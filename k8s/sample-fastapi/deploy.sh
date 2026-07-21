@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Sample FastAPI 전용 ECR을 생성하고 동일 이미지를 API와 Worker Deployment에 적용합니다.
-# Prometheus Target과 KEDA 리소스는 이 스크립트의 범위에 포함하지 않습니다.
+# Worker Metrics Service를 함께 배포하고, CRD가 있으면 ServiceMonitor도 적용합니다.
+# Prometheus Target 확인과 KEDA 리소스 적용은 이 스크립트의 범위에 포함하지 않습니다.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -86,10 +87,22 @@ sed "s|sample-fastapi:replace-me|${IMAGE_URI}|g" "${SCRIPT_DIR}/fastapi-deployme
 kubectl apply -f "${SCRIPT_DIR}/fastapi-service.yaml"
 sed "s|sample-fastapi:replace-me|${IMAGE_URI}|g" "${SCRIPT_DIR}/worker-deployment.yaml" \
   | kubectl apply -f -
+kubectl apply -f "${SCRIPT_DIR}/worker-service.yaml"
+
+# ServiceMonitor CRD는 kube-prometheus-stack이 설치된 뒤에 사용할 수 있습니다.
+# CRD가 아직 없다면 애플리케이션 배포는 유지하고 모니터링 리소스만 건너뜁니다.
+if kubectl api-resources --api-group=monitoring.coreos.com -o name \
+  | grep -qx 'servicemonitors.monitoring.coreos.com'; then
+  kubectl apply -f "${SCRIPT_DIR}/fastapi-servicemonitor.yaml"
+  kubectl apply -f "${SCRIPT_DIR}/worker-servicemonitor.yaml"
+else
+  echo "ServiceMonitor CRD not found; install/sync kube-prometheus-stack and apply the monitors later."
+fi
 
 echo "FastAPI Rollout 확인"
 kubectl -n "${NAMESPACE}" rollout status deployment/sample-fastapi --timeout=180s
+kubectl -n "${NAMESPACE}" rollout status deployment/sample-worker --timeout=180s
 kubectl -n "${NAMESPACE}" get deployment,pod,service,configmap
 
 echo "Deployment complete: ${IMAGE_URI}"
-echo "Worker replicas remain at 0 until Queue Length 3 is verified."
+echo "Worker keeps one baseline replica. KEDA minReplicaCount must also be 1."
