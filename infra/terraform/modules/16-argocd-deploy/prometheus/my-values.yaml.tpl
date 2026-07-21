@@ -31,6 +31,14 @@ alertmanager:
             send_resolved: true
 prometheus:
   prometheusSpec:
+    # Helm release name에 의존하지 않고 명시적인 라벨로 ServiceMonitor를 선택합니다.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector:
+      matchLabels:
+        monitoring: prometheus
+    serviceMonitorNamespaceSelector:
+      matchLabels:
+        monitoring: prometheus
     resources:
       requests:
         cpu: 200m

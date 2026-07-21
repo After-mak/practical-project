@@ -1,0 +1,5 @@
+-r requirements.txt
+fakeredis==2.26.2
+httpx==0.28.1
+pytest==8.3.4
+PyYAML==6.0.3
