@@ -17,8 +17,6 @@ resource "argocd_application" "prometheus_stack" {
       # chart 를 설치할때 custom 변수 전달하기
       helm {
         values = templatefile("${path.module}/prometheus/my-values.yaml.tpl", {
-          telegram_bot_token     = var.telegram_bot_token
-          telegram_chat_id       = var.telegram_chat_id
           grafana_admin_password = var.grafana_admin_password
         })
       }

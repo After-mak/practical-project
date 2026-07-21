@@ -8,11 +8,7 @@
 module "argocd" {
   source = "../../modules/15-argocd"
 }
-
 module "argocd_deploy" {
   source = "../../modules/16-argocd-deploy"
-
-  telegram_bot_token     = var.telegram_bot_token
-  telegram_chat_id       = var.telegram_chat_id
   grafana_admin_password = var.grafana_admin_password
 }

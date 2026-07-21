@@ -19,16 +19,16 @@ alertmanager:
       group_interval: 5m
       repeat_interval: 12h
       routes:
-        - receiver: 'telegram'
+        - receiver: 'tg-gateway-webhook'
           matchers:
             - namespace = "default"
     receivers:
       - name: 'null'
-      - name: 'telegram'
-        telegram_configs:
-          - bot_token: '${telegram_bot_token}'
-            chat_id: ${telegram_chat_id}
-            parse_mode: 'HTML'
+      - name: 'tg-gateway-webhook'
+        webhook_configs:
+          # TODO: tg-gateway Service의 정확한 이름/네임스페이스는 mak-argocd-deploy 매니페스트 확인 후 확정 필요 (임종원님 확인 필요)
+          - url: 'http://tg-gateway-service.default.svc.cluster.local:8000/webhook/alertmanager'
+            send_resolved: true
 prometheus:
   prometheusSpec:
     resources:
