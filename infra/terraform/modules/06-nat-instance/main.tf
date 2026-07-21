@@ -14,6 +14,7 @@ resource "aws_instance" "nat" {
   subnet_id              = var.subnet_id
   vpc_security_group_ids = var.security_group_ids
   key_name               = var.key_name
+  iam_instance_profile   = aws_iam_instance_profile.nat_ssm_profile.name
 
   # NAT 인스턴스의 핵심: 자신을 목적지로 하지 않는 트래픽도 수신/전송할 수 있도록 허용
   source_dest_check = false
@@ -77,4 +78,37 @@ resource "aws_eip" "nat_eip" {
 resource "aws_eip_association" "nat_eip_assoc" {
   instance_id   = aws_instance.nat.id
   allocation_id = aws_eip.nat_eip.id
+}
+# ---------------------------------------------------------
+# [SSM 디버깅용 IAM Role 및 Profile 생성]
+# ---------------------------------------------------------
+resource "aws_iam_role" "nat_ssm_role" {
+  name = "${var.name}-ssm-role-${random_id.nat_id.hex}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "random_id" "nat_id" {
+  byte_length = 4
+}
+
+resource "aws_iam_role_policy_attachment" "nat_ssm_attach" {
+  role       = aws_iam_role.nat_ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "nat_ssm_profile" {
+  name = "${var.name}-ssm-profile-${random_id.nat_id.hex}"
+  role = aws_iam_role.nat_ssm_role.name
 }
