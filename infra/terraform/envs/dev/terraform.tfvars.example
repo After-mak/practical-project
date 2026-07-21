@@ -10,3 +10,6 @@ db_password = "12345678"
 domain_name = "tuby.shop"
 
 acm_certificate_arn = "ACM ARN 값"
+telegram_bot_token = "텔레그램 봇 토큰 값"
+telegram_chat_id = 0
+grafana_admin_password = "grafana 관리자 비밀번호"
