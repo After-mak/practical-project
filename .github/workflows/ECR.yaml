@@ -2,8 +2,9 @@ name: Build and Push to Amazon ECR & Update GitOps Tag
 
 on:
   push:
-    branches: [ "main" ] # 💡 main 브랜치에 소스코드가 push되면 작동합니다.
-
+    branches: [ "main", "dev" ] # main,dev  브랜치에 소스코드가 push되면 작동
+    paths:
+      - 'apps/**'
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -22,68 +23,23 @@ jobs:
         aws-region: ap-northeast-2 # 서울 리전
 
     # # 3. Amazon ECR 로그인
-    # - name: Login to Amazon ECR
-    #   id: login-ecr
-    #   uses: aws-actions/amazon-ecr-login@v2
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
 
     # # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
-    # - name: Build, tag, and push image to Amazon ECR
-    #   env:
-    #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-    #     ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름을 적어주세요.
-    #     IMAGE_TAG: "${{ github.run_number }}" # 자동으로 1씩 증가하는 빌드 번호
-    #   run: |
-    #     # ECR 주소와 태그를 매핑하여 빌드
-    #     docker build \
-    #       -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-    #       -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-   
-    #     # AWS ECR로 이미지 푸시
-    #     docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-    #     docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        
-    #     # 다음 단계에서 쓰기 위해 출력값 세팅
-    #     echo "image_registry=$ECR_REGISTRY" >> $GITHUB_OUTPUT
-    #     echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-    #   id: build-image
-
-    # 5. 배포 전용 저장소(mak-argocd-deploy) 체크아웃
-    - name: Checkout Target Deployment Repository
-      uses: actions/checkout@v4
-      with:
-        repository: '${{ github.repository_owner }}/mak-argocd-deploy'
-        token: ${{ secrets.GITOPS_TOKEN }}
-        path: 'deploy-repo'
-
-    # 6. yq를 이용해 배포 저장소의 values.yaml 내 image.tag를 새 증가된 숫자로 변경(소수점)
-    - name: Update Image Tag in values.yaml using yq
+    - name: Build, tag, and push image to Amazon ECR
+      working-directory: ./app-test
       env:
-        NEW_TAG: "${{ github.run_number }}"
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름을 적어주세요.
+        IMAGE_TAG: "${{ github.run_number }}" # 자동으로 1씩 증가하는 빌드 번호
       run: |
-        cd deploy-repo
-        
-        export NEW_TAG=$(awk "BEGIN {printf \"%.1f\", $NEW_TAG * 0.1}")
-        
-        echo "새로 생성된 소수점 버전: $NEW_TAG"
-
-        # values.yaml의 image.tag 부분을 증가된 숫자로 변경("tag")
-        yq -i ".image.tag = env(NEW_TAG) | .image.tag style=\"double\"" charts/mak-app/values.yaml
-        
-        echo "=== 수정된 values.yaml 내용 확인 ==="
-        cat charts/mak-app/values.yaml
-
-    # 7. 변경된 values.yaml 배포 저장소에 Commit & Push (ArgoCD가 이를 감지해 자동 배포함)
-    - name: Commit and Push to Deploy Repository
-      run: |
-        cd deploy-repo
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        
-        git add charts/mak-app/values.yaml
-        if ! git diff --cached --quiet; then
-          git commit -m "Chg: [CI/CD] 새 소스코드 빌드 반영 - image.tag 변경 (${{ github.sha }})"
-          git push origin main
-          echo "성공적으로 배포 저장소에 푸시되었습니다!"
-        else
-          echo "변경된 내용이 없어 푸시를 생략합니다."
-        fi
+        # ECR 주소와 태그를 매핑하여 빌드
+        docker build \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+   
+        # AWS ECR로 이미지 푸시
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest

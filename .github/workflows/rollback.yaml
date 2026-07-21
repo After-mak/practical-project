@@ -1,0 +1,43 @@
+name: Auto Rollback (Git Revert)
+
+on:
+  workflow_dispatch: # 텔레그램이나 GitHub UI에서 API로 호출할 수 있게 설정
+    inputs:
+      reason:
+        description: '롤백 사유'
+        required: false
+        default: 'ChatOps Triggered Rollback'
+  repository_dispatch: # 텔레그램 봇 웹훅 호출
+    types: [telegram-rollback]
+
+jobs:
+  revert-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Helm Chart Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITOPS_TOKEN }}
+          fetch-depth: 0 # 이전 커밋 이력을 가져오기 위해 0으로 설정
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # 핵심: 직전 커밋(HEAD)을 취소하는 새로운 커밋 생성
+      - name: Execute Git Revert
+        run: |
+          echo "Executing git revert HEAD..."
+          # --no-edit 옵션으로 커밋 메시지 입력 창이 뜨는 것을 방지하고 자동 커밋
+          git revert --no-edit HEAD
+
+      - name: Push Reverted Commit 
+        run: |
+         # repository_dispatch인 경우 payload의 target_branch를 사용하고, 없으면 main 사용
+          TARGET_BRANCH="${{ github.event.client_payload.target_branch }}"
+          if [ -z "$TARGET_BRANCH" ]; then
+            TARGET_BRANCH="main"
+          fi
+          
+          git push origin $TARGET_BRANCH
