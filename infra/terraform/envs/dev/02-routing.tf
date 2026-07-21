@@ -35,7 +35,7 @@ resource "aws_route_table_association" "public_c_rt" {
 # 퍼블릭 서브넷 A에 위치하는 NAT instance
 module "project03_nat_instance_A" {
   source             = "../../modules/06-nat-instance"
-  name               = "project03-nat-instance"
+  name               = "project03-nat-instance-a"
   subnet_id          = module.project03_public_subnet_a.subnet_id
   security_group_ids = [module.security_groups.nat_sg_id]
   tailscale_auth_key = var.tailscale_auth_key
@@ -44,7 +44,7 @@ module "project03_nat_instance_A" {
 # 퍼블릭 서브넷 C에 위치하는 NAT instance
 module "project03_nat_instance_C" {
   source             = "../../modules/06-nat-instance"
-  name               = "project03-nat-instance"
+  name               = "project03-nat-instance-c"
   subnet_id          = module.project03_public_subnet_c.subnet_id
   security_group_ids = [module.security_groups.nat_sg_id]
   tailscale_auth_key = var.tailscale_auth_key

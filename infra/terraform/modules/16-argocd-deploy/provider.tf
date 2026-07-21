@@ -27,8 +27,8 @@ data "kubernetes_service" "argocd_server" {
 
 # ArgoCD API 접속 프로바이더
 provider "argocd" {
-  # cluster_ip (vpn 연결된 eks 에서 사용할 예정)
-  server_addr = "${data.kubernetes_service.argocd_server.spec[0].cluster_ip}:80"
+  # cluster_ip (vpn 연결된 eks 에서 사용할 예정) 대신, 현재 실행 중인 port-forward 이용
+  server_addr = "localhost:8080"
   # external_ip
   # server_addr = "${data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].ip}:80"
 
