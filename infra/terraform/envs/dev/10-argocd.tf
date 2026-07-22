@@ -21,7 +21,6 @@ module "argocd_deploy" {
   aws_profile                     = var.aws_profile
   grafana_admin_password          = var.grafana_admin_password
   sample_fastapi_image_repository = data.aws_ecr_repository.sample_fastapi.repository_url
-  sample_fastapi_image_tag        = var.sample_fastapi_image_tag
   sample_fastapi_redis_host       = module.sample_redis.primary_endpoint_address
   sample_fastapi_redis_port       = module.sample_redis.port
 }

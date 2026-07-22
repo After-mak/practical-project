@@ -103,7 +103,6 @@ resource "argocd_application" "sample_fastapi" {
         values = yamlencode({
           image = {
             repository = var.sample_fastapi_image_repository
-            tag        = var.sample_fastapi_image_tag
           }
           redis = {
             host = var.sample_fastapi_redis_host
