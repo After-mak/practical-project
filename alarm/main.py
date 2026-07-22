@@ -79,20 +79,45 @@ class CustomRollbackRequest(BaseModel):
 
 # ① Alertmanager 수신 (직전 롤백)
 @app.post("/webhook/alertmanager")
-async def alertmanager_webhook():
-    text = (
-        "🚨 *[Alertmanager 경고]*\n"
-        "mak-app 서비스 에러율 8.5% 돌파! (기준: 1% 이하)\n"
-        "최근 리소스 변경/배포로 인한 영향일 수 있습니다. 이전 버전으로 롤백하시겠습니까?"
-    )
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": "⏪ 직전 버전 롤백 (HEAD~1)", "callback_data": "rollback_head"},
-            {"text": "🔍 상태 대시보드 확인", "url": GRAFANA_URL}
-        ]]
-    }
+async def alertmanager_webhook(request: Request):
+    # Alertmanager webhook_configs가 실제로 보내는 표준 페이로드를 파싱합니다.
+    # 참고: https://prometheus.io/docs/alerting/latest/configuration/#webhook_config
+    payload = await request.json()
+    alerts = payload.get("alerts", [])
+
+    if not alerts:
+        return {"status": "ignored", "reason": "no alerts in payload"}
+
+    lines = []
+    any_firing = False
+    for alert in alerts:
+        status = alert.get("status", "unknown")
+        labels = alert.get("labels", {})
+        annotations = alert.get("annotations", {})
+        alertname = labels.get("alertname", "UnknownAlert")
+        severity = labels.get("severity", "unknown")
+        summary = annotations.get("summary") or annotations.get("description") or "설명 없음"
+
+        icon = "🚨" if status == "firing" else "✅"
+        lines.append(f"{icon} *{alertname}* ({severity}) - {status}\n{summary}")
+
+        if status == "firing":
+            any_firing = True
+
+    text = "*[Alertmanager 알림]*\n\n" + "\n\n".join(lines)
+
+    reply_markup = None
+    if any_firing:
+        text += "\n\n최근 리소스 변경/배포로 인한 영향일 수 있습니다. 이전 버전으로 롤백하시겠습니까?"
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": "⏪ 직전 버전 롤백 (HEAD~1)", "callback_data": "rollback_head"},
+                {"text": "🔍 상태 대시보드 확인", "url": GRAFANA_URL}
+            ]]
+        }
+
     send_telegram_message(text, reply_markup)
-    return {"status": "ok"}
+    return {"status": "ok", "alerts_processed": len(alerts)}
 
 # ② FinOps OOMKill 위험 수신 (사용자 지정/권장 롤백)
 @app.post("/webhook/finops")
