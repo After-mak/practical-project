@@ -235,7 +235,7 @@ async def telegram_callback_webhook(request: Request):
         elif callback_data.startswith("rollback_custom_"):
             target_tag = callback_data.replace("rollback_custom_", "")
             update_telegram_message(chat_id, message_id, f"⏳ *[지정 롤백 진행 중]* `{target_tag}` 버전으로 롤백 중입니다...")
-            trigger_github_workflow("rollback.yaml", {"target_tag": target_tag})
+            trigger_github_workflow("rollback-custom.yaml", {"target_tag": target_tag})
             update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 완료]* `{target_tag}` 버전 롤백 파이프라인이 실행되었습니다!")
 
         elif callback_data.startswith("deploy_approve_"):
