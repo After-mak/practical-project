@@ -20,9 +20,8 @@ terraform {
       version = "~> 0.16"
     }
     helm = {
-      source = "hashicorp/helm"
-      # modules/15-argocd의 Helm Provider 2.x 구성 문법 및 Lock 파일과 통일합니다.
-      version = "~> 2.14"
+      source  = "hashicorp/helm"
+      version = "~> 3.0"
     }
     http = {
       source  = "hashicorp/http"
