@@ -1,49 +1,140 @@
-name: Build and Push to Amazon ECR & Update GitOps Tag
+name: Build Sample FastAPI and Update GitOps
 
 on:
+  # Sample FastAPI 소스가 변경된 경우에만 이미지 빌드와 GitOps 갱신을 실행합니다.
   push:
-    branches: [ "main", "dev" ] # main,dev  브랜치에 소스코드가 push되면 작동
+    branches:
+      - main
+      - dev
     paths:
-      - 'apps/**'
+      - "apps/sample-fastapi/**"
+  # 긴급 재배포나 Workflow 확인이 필요할 때 GitHub 화면에서 수동 실행할 수 있습니다.
+  workflow_dispatch:
+
+# 애플리케이션 저장소는 읽기만 하며, GitOps 저장소 쓰기는 GITOPS_TOKEN으로 수행합니다.
+permissions:
+  contents: read
+
+# 두 실행이 동시에 GitOps values.yaml을 수정하여 충돌하는 것을 방지합니다.
+concurrency:
+  group: sample-fastapi-gitops
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: sample-fastapi
+  GITOPS_REPOSITORY: After-mak/mak-argocd-deploy
+  GITOPS_VALUES_FILE: charts/sample-fastapi/values.yaml
+
 jobs:
-  build-and-push:
+  build-push-and-update-gitops:
     runs-on: ubuntu-latest
-    
+
     steps:
-    # 1. 소스코드 체크아웃
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
+      # Dockerfile과 Sample FastAPI 소스코드를 가져옵니다.
+      - name: Checkout application source
+        uses: actions/checkout@v4
 
-    # 2. AWS 자격 증명 설정 (우리가 등록한 admin-bot의 키를 사용)
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ap-northeast-2 # 서울 리전
+      # GitHub Repository Secrets에 등록된 AWS 자격 증명을 사용합니다.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    # 3. Amazon ECR 로그인
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      # ECR은 infra/terraform/init/ecr.tf에서 먼저 생성되어 있어야 합니다.
+      - name: Confirm Sample FastAPI ECR repository
+        run: |
+          aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION"
 
-    # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
-    - name: Build, tag, and push image to Amazon ECR
-      working-directory: ./apps
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름
-      run: |
-        # 소수점 태그(1.0)
-        IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
-        echo "빌드할 이미지 태그: $IMAGE_TAG"
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-        # ECR 주소와 태그를 매핑하여 빌드
-        docker build \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-   
-        # AWS ECR로 이미지 푸시
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        
+      # 사람이 배포 순서를 확인할 수 있도록 v0.1.<Workflow 실행 번호> 형식을 사용합니다.
+      # ECR Repository가 IMMUTABLE이므로 덮어쓰기가 필요한 latest 태그는 사용하지 않습니다.
+      - name: Build and push Sample FastAPI image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        working-directory: apps/sample-fastapi
+        run: |
+          set -euo pipefail
+
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --pull -t "$IMAGE_URI" .
+
+          # 동일 실행을 재시도했을 때 이미 존재하는 IMMUTABLE 태그를 다시 Push하지 않습니다.
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Image already exists: $IMAGE_URI"
+          else
+            docker push "$IMAGE_URI"
+          fi
+
+      # ArgoCD가 감시하는 별도의 GitOps 저장소를 내려받습니다.
+      # GITOPS_TOKEN에는 해당 저장소 main 브랜치 쓰기 권한이 필요합니다.
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      # Helm values.yaml의 image.tag만 방금 Push한 ECR 태그로 변경합니다.
+      # 다른 설정값이 함께 바뀌지 않도록 image 블록 안의 tag 항목만 탐색합니다.
+      - name: Update Sample FastAPI image tag
+        env:
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        run: |
+          test -f "gitops/$GITOPS_VALUES_FILE"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          values_path = Path("gitops") / os.environ["GITOPS_VALUES_FILE"]
+          lines = values_path.read_text(encoding="utf-8").splitlines(keepends=True)
+          inside_image = False
+
+          for index, line in enumerate(lines):
+              if line.strip() == "image:":
+                  inside_image = True
+                  continue
+              if inside_image and line.startswith("  tag:"):
+                  lines[index] = f'  tag: "{os.environ["IMAGE_TAG"]}"\n'
+                  break
+              if inside_image and line and not line.startswith(" "):
+                  raise RuntimeError("image.tag was not found in values.yaml")
+          else:
+              raise RuntimeError("image.tag was not found in values.yaml")
+
+          values_path.write_text("".join(lines), encoding="utf-8")
+          PY
+
+          grep -A 3 '^image:' "gitops/$GITOPS_VALUES_FILE"
+
+      # 변경된 태그를 GitOps 저장소에 Push하면 ArgoCD Auto-Sync가 EKS 배포를 시작합니다.
+      - name: Commit and push GitOps change
+        working-directory: gitops
+        env:
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$GITOPS_VALUES_FILE"
+
+          if git diff --cached --quiet; then
+            echo "GitOps image tag is already $IMAGE_TAG"
+            exit 0
+          fi
+
+          git commit -m "chore: deploy sample-fastapi $IMAGE_TAG"
+          git push origin HEAD:main
