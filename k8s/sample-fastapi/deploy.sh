@@ -6,8 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-TF_DIR="${ROOT_DIR}/infra/terraform/envs/dev"
+TF_DIR="${ROOT_DIR}/infra/terraform/envs/dev/infra"
 TFVARS_FILE="${ROOT_DIR}/infra/terraform/terraform.tfvars"
+BACKEND_CONFIG="${TF_DIR}/backend.hcl"
 
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 EKS_CLUSTER_NAME="${EKS_CLUSTER_NAME:-project03-eks}"
@@ -31,7 +32,17 @@ echo "[1/8] AWS identity 확인"
 aws sts get-caller-identity >/dev/null
 
 echo "[2/8] Terraform Backend와 Module 초기화"
-terraform -chdir="${TF_DIR}" init -reconfigure -backend-config=backend.hcl
+if [[ ! -d "${TF_DIR}" ]]; then
+  echo "Terraform infrastructure directory not found: ${TF_DIR}" >&2
+  exit 1
+fi
+
+if [[ -f "${BACKEND_CONFIG}" ]]; then
+  terraform -chdir="${TF_DIR}" init -reconfigure -backend-config="${BACKEND_CONFIG}"
+else
+  echo "backend.hcl not found; using AWS_PROFILE and the backend settings in 00_backend.tf."
+  terraform -chdir="${TF_DIR}" init -reconfigure
+fi
 
 echo "[3/8] init에서 생성한 Sample FastAPI ECR 확인"
 if ! ECR_REPOSITORY_URL="$(aws ecr describe-repositories \
@@ -44,7 +55,11 @@ if ! ECR_REPOSITORY_URL="$(aws ecr describe-repositories \
   exit 1
 fi
 
-REDIS_HOST="$(terraform -chdir="${TF_DIR}" output -raw redis_primary_endpoint)"
+if ! REDIS_HOST="$(terraform -chdir="${TF_DIR}" output -raw redis_primary_endpoint)"; then
+  echo "Unable to read redis_primary_endpoint from the infrastructure Terraform state." >&2
+  echo "Initialize/apply infra/terraform/envs/dev/infra and verify its remote state first." >&2
+  exit 1
+fi
 IMAGE_URI="${ECR_REPOSITORY_URL}:${IMAGE_TAG}"
 
 echo "[4/8] Docker 이미지 Build"
