@@ -1,18 +1,7 @@
 # ############################################
 # # 6. ALB (Public Load Balancer)
 # ############################################
-# kubectl을 이용하여 eks cluster에 접근할 수 있게 허용해주는 부분
-provider "kubectl" {
-  host                   = module.project03_eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
-  load_config_file       = false
-  lazy_load              = true
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name, "--profile", var.aws_profile]
-  }
-}
+
 
 data "aws_acm_certificate" "this" {
   domain   = var.domain_name
@@ -40,6 +29,11 @@ resource "kubectl_manifest" "target_group_config" {
   yaml_body  = file("${path.module}/gateway_api/targetgroupconfigure.yaml")
   depends_on = [kubectl_manifest.lbc_gateway_crds, kubectl_manifest.service]
 }
+
+resource "kubectl_manifest" "argocd_target_group" {
+  yaml_body  = file("${path.module}/gateway_api/argocd-targetgroup.yaml")
+  depends_on = [kubectl_manifest.lbc_gateway_crds]
+}
 # service 및 deploy 생성 ================
 resource "kubectl_manifest" "service" {
   yaml_body  = file("${path.module}/gateway_api/service.yaml")
@@ -55,6 +49,11 @@ resource "kubectl_manifest" "route" {
   depends_on = [kubectl_manifest.gateway,
                 kubectl_manifest.service,
                 kubectl_manifest.target_group_config]
+}
+
+resource "kubectl_manifest" "argocd_route" {
+  yaml_body  = file("${path.module}/gateway_api/argocd-httproute.yaml")
+  depends_on = [kubectl_manifest.gateway]
 }
 
 

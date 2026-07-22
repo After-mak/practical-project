@@ -5,10 +5,11 @@
 # =============================================================
 
 # ── 경로 및 환경 변수 설정 ──────────────────────────────────
-TF_DEV_DIR   := infra/terraform/envs/dev
-TF_INIT_DIR  := infra/terraform/init
-ANSIBLE_DIR  := infra/ansible
-TF_VARS_FILE := infra/terraform/terraform.tfvars
+TF_DEV_INFRA_DIR := infra/terraform/envs/dev/infra
+TF_DEV_K8S_DIR   := infra/terraform/envs/dev/k8s
+TF_INIT_DIR      := infra/terraform/init
+ANSIBLE_DIR      := infra/ansible
+TF_VARS_FILE     := infra/terraform/envs/dev/infra/terraform.tfvars
 
 # tfvars 파일에서 aws_profile 값을 자동으로 추출 (예: admin-jongwon)
 AWS_PROF := $(shell grep "aws_profile" $(TF_VARS_FILE) 2>/dev/null | cut -d'"' -f2)
@@ -35,8 +36,8 @@ help:
 	@echo "  make fmt           : 코드 스타일 정렬"
 	@echo "  make validate      : 문법 검사"
 	@echo "  make plan          : 인프라 변경사항 시뮬레이션"
-	@echo "  make apply-auto    : AWS 실제 배포 (승인)"
-	@echo "  make apply-auto    : AWS 실제 배포 (승인 생략)"
+	@echo "  make apply         : AWS 실제 배포 (수동 승인)"
+	@echo "  make apply-auto    : AWS 실제 배포 (승인 생략 - 3단계 자동 진행)"
 	@echo "  make output        : 배포된 AWS 인프라 정보 확인"
 	@echo "  make destroy       : AWS 인프라 전체 삭제"
 	@echo "============================================================="
@@ -52,43 +53,61 @@ check:
 
 # ── Terraform ────────────────────────────────────────────────
 init:
-	@echo "▶ 테라폼 백엔드 초기화 중..."
-	cd $(TF_DEV_DIR) && terraform init -backend-config=backend.hcl
+	@echo "▶ 테라폼 백엔드 초기화 중 (infra)..."
+	cd $(TF_DEV_INFRA_DIR) && terraform init -backend-config=backend.hcl
+	@echo "▶ 테라폼 백엔드 초기화 중 (k8s)..."
+	cd $(TF_DEV_K8S_DIR) && terraform init -backend-config=backend.hcl
 
 fmt:
 	@echo "▶ 테라폼 코드 포맷 정렬 중..."
-	cd $(TF_DEV_DIR) && terraform fmt -recursive
+	cd $(TF_DEV_INFRA_DIR) && terraform fmt -recursive
+	cd $(TF_DEV_K8S_DIR) && terraform fmt -recursive
 
 validate:
 	@echo "▶ 테라폼 문법 및 유효성 검사 중..."
-	cd $(TF_DEV_DIR) && terraform validate
+	cd $(TF_DEV_INFRA_DIR) && terraform validate
+	cd $(TF_DEV_K8S_DIR) && terraform validate
 
 plan:
 	@echo "▶ AWS 인프라 변경 예측(Plan) 실행 중..."
-	cd $(TF_DEV_DIR) && terraform plan
+	cd $(TF_DEV_INFRA_DIR) && terraform plan
+	cd $(TF_DEV_K8S_DIR) && terraform plan
 
 apply:
-	@echo "▶ AWS 인프라 실배포 진행 중 (수동 승인 필요)..."
-	cd $(TF_DEV_DIR) && terraform apply -parallelism=3
+	@echo "▶ AWS 기초 인프라 실배포 진행 중 (수동 승인 필요)..."
+	cd $(TF_DEV_INFRA_DIR) && terraform apply -parallelism=3
+	@echo "▶ Kubernetes 애플리케이션 실배포 진행 중 (수동 승인 필요)..."
+	cd $(TF_DEV_K8S_DIR) && terraform apply -parallelism=3
 
 apply-auto:
-	@echo "▶ AWS 인프라 고속 자동 배포 중 (FinOps 적용)..."
-	cd $(TF_DEV_DIR) && terraform apply --auto-approve -parallelism=3
+	@echo "▶ [1/3단계] AWS 기초 인프라 및 EKS 클러스터 구축 중..."
+	cd $(TF_DEV_INFRA_DIR) && terraform apply --auto-approve -parallelism=3
+
+	@echo "▶ [2/3단계] EKS 위에 ArgoCD 핵심 엔진(서버) 설치 중..."
+	cd $(TF_DEV_K8S_DIR) && terraform apply -target=module.argocd --auto-approve -parallelism=3
+	@echo "⏳ ArgoCD Pod 구동 대기 (30초)..."
+	sleep 30
+
+	@echo "▶ [3/3단계] ArgoCD Application 및 잔여 스택 전체 완공 중..."
+	cd $(TF_DEV_K8S_DIR) && terraform apply --auto-approve -parallelism=3 
 
 output:
-	@echo "▶ 배포된 AWS 리소스 정보(ALB/EKS/ECR/WAF) 출력..."
-	cd $(TF_DEV_DIR) && terraform output
+	@echo "▶ 배포된 AWS 리소스 정보 출력..."
+	cd $(TF_DEV_INFRA_DIR) && terraform output
 
 destroy:
 	@echo "⚠️  주의: AWS 인프라 자원 삭제중..."
-	cd $(TF_DEV_DIR) && terraform destroy --auto-approve 
-
+	@echo "▶ [1/2단계] Kubernetes 내부 애플리케이션(ArgoCD 등) 삭제 중..."
+	cd $(TF_DEV_K8S_DIR) && terraform destroy --auto-approve 
+	@echo "▶ [2/2단계] AWS 기본 인프라(EKS, VPC 등) 삭제 중..."
+	cd $(TF_DEV_INFRA_DIR) && terraform destroy --auto-approve 
 
 # ── Ansible ───────────────────────────────────────────────────	
 
 
 
 # ── GitOps  ───────────────────────────────────────────────────
+
 
 
 

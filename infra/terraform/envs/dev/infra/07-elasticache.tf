@@ -3,7 +3,7 @@
 ############################################
 
 module "sample_redis" {
-  source = "../../modules/17-elasticache"
+  source = "../../../modules/17-elasticache"
 
   name_prefix = "project03-sample"
   vpc_id      = module.project03_vpc.vpc_id

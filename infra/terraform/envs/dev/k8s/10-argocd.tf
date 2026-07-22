@@ -6,12 +6,14 @@
 # # #      실제 apply 시 argocd 모듈부터 먼저 적용하고, 그 다음 argocd_deploy를 적용해야 함
 # # #      (예: terraform apply -target=module.argocd 로 먼저 적용 후 전체 apply)
 module "argocd" {
-  source = "../../modules/15-argocd"
+  source = "../../../modules/15-argocd"
   aws_profile = var.aws_profile
 }
 
 module "argocd_deploy" {
-  source = "../../modules/16-argocd-deploy"
+  source = "../../../modules/16-argocd-deploy"
   aws_profile = var.aws_profile
   grafana_admin_password = var.grafana_admin_password
+  domain_name = var.domain_name
+  depends_on = [module.argocd]
 }

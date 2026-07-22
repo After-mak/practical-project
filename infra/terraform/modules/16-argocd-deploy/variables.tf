@@ -4,3 +4,7 @@ variable "grafana_admin_password" {
   sensitive   = true
 }
 variable "aws_profile" { type = string }
+variable "domain_name" {
+  description = "The domain name for the environment"
+  type        = string
+}

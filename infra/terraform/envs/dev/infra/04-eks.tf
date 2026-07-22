@@ -2,7 +2,7 @@
 # 4. EKS (Control Plane, Worker Node 생성 및 설정)
 ############################################
 module "project03_eks" {
-  source = "../../modules/08-eks"
+  source = "../../../modules/08-eks"
 
   cluster_name    = "project03-eks"
   cluster_version = "1.32"
@@ -14,7 +14,7 @@ module "project03_eks" {
 
   node_security_group_ids = [module.security_groups.eks_node_sg_id]
 
-  instance_types = ["t3.small"] # 프리티어 제한
+  instance_types = ["t3.medium"] 
   ami_type       = "AL2023_x86_64_STANDARD"
   min_size       = 2
   max_size       = 3

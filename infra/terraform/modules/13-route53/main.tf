@@ -16,3 +16,16 @@ resource "aws_route53_record" "alb_alias" {
     evaluate_target_health = true
   }
 }
+
+# 3. 서브도메인(*.tuby.shop)을 ALB로 연결하는 와일드카드 Alias(A) 레코드
+resource "aws_route53_record" "alb_wildcard_alias" {
+  zone_id = data.aws_route53_zone.this.zone_id
+  name    = "*.${var.domain_name}"
+  type    = "A"
+
+  alias {
+    name                   = var.alb_dns_name
+    zone_id                = var.alb_zone_id
+    evaluate_target_health = true
+  }
+}

@@ -3,7 +3,7 @@
 ############################################
 
 module "security_groups" {
-  source = "../../modules/04-security-group"
+  source = "../../../modules/04-security-group"
 
   name   = "project03"
   vpc_id = module.project03_vpc.vpc_id
@@ -18,6 +18,6 @@ module "security_groups" {
 }
 
 module "iam" {
-  source = "../../modules/05-iam"
+  source = "../../../modules/05-iam"
   name   = "project03"
 }

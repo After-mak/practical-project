@@ -6,6 +6,8 @@ metadata:
 spec:
   parentRefs:
     - name: my-gateway
+  hostnames:
+    - "tuby.shop"
   rules:
     - matches:
         - path:

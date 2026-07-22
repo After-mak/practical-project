@@ -17,24 +17,13 @@ variable "tailscale_auth_key" {
   type        = string
   sensitive   = true
 }
-variable "domain_name" {
-  description = "서비스 도메인 이름"
-  type        = string
-  default     = "tuby.shop"
-}
-variable "acm_certificate_arn" {
-  description = "init에서 발급받은 ACM 인증서 ARN"
-  type        = string
-  default     = ""
-}
-variable "grafana_admin_password" {
-  description = "Grafana admin 계정 비밀번호"
-  type        = string
-  sensitive   = true
-}
-
 variable "elasticache_node_type" {
   description = "Sample FastAPI Redis Queue용 ElastiCache 노드 타입"
   type        = string
   default     = "cache.t3.micro"
+}
+variable "azs" {
+  description = "사용할 가용 영역 목록"
+  type        = list(string)
+  default     = ["ap-northeast-2a", "ap-northeast-2c"]
 }
