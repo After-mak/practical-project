@@ -19,7 +19,7 @@ spec:
   - type: redis
     metadata:
       # default 네임스페이스의 표준 Redis DNS 주소
-      host: redis-master.default.svc.cluster.local:6379
+      address: redis-master.default.svc.cluster.local:6379
       listName: telegram_webhook_queue
       listLength: "10"
   advanced:
