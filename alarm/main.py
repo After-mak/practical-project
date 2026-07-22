@@ -113,20 +113,38 @@ def trigger_github_workflow(workflow_file: str, inputs: dict = None):
 # ==========================================
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request):
-    """1️⃣ Alertmanager 리소스 임계치 초과 알림"""
-    text = (
-        "🚨 *[Alertmanager 경고 알림]*\n"
-        "현재 클러스터 내 CPU / Memory 리소스 임계치가 초과되었습니다.\n"
-        "즉시 확인 후 이전 안정 버전으로 롤백을 검토하세요."
-    )
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": "⏪ 직전 버전 롤백", "callback_data": "rollback_head"},
-            {"text": "🔍 Grafana 대시보드", "url": GRAFANA_URL}
-        ]]
-    }
+    """1️⃣ Alertmanager 리소스 임계치 초과 알림 (실제 페이로드 파싱)"""
+    payload = await request.json()
+    alerts = payload.get("alerts", [])
+    if not alerts:
+        return {"status": "ignored", "reason": "no alerts in payload"}
+
+    lines = []
+    any_firing = False
+    for alert in alerts:
+        status = alert.get("status", "unknown")
+        labels = alert.get("labels", {})
+        annotations = alert.get("annotations", {})
+        alertname = labels.get("alertname", "UnknownAlert")
+        severity = labels.get("severity", "unknown")
+        summary = annotations.get("summary") or annotations.get("description") or "설명 없음"
+        icon = "🚨" if status == "firing" else "✅"
+        lines.append(f"{icon} *{alertname}* ({severity}) - {status}\n{summary}")
+        if status == "firing":
+            any_firing = True
+
+    text = "*[Alertmanager 알림]*\n\n" + "\n\n".join(lines)
+    reply_markup = None
+    if any_firing:
+        text += "\n\n최근 리소스 변경/배포로 인한 영향일 수 있습니다. 이전 버전으로 롤백하시겠습니까?"
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": "⏪ 직전 버전 롤백 (HEAD~1)", "callback_data": "rollback_head"},
+                {"text": "🔍 상태 대시보드 확인", "url": GRAFANA_URL}
+            ]]
+        }
     send_telegram_message(text, reply_markup)
-    return {"status": "ok"}
+    return {"status": "ok", "alerts_processed": len(alerts)}
 
 @app.post("/webhook/finops")
 async def finops_webhook(req: Optional[CustomRollbackRequest] = None):
