@@ -20,16 +20,12 @@ variable "tailscale_auth_key" {
 variable "domain_name" {
   description = "서비스 도메인 이름"
   type        = string
-<<<<<<< HEAD
-  default     = "vche.cloud"
-=======
   default     = "tuby.shop"
 }
 variable "acm_certificate_arn" {
   description = "init에서 발급받은 ACM 인증서 ARN"
   type        = string
   default     = ""
->>>>>>> 3d2e2c9ff58ae71b576e2442af0375851dc88fa5
 }
 variable "grafana_admin_password" {
   description = "Grafana admin 계정 비밀번호"
