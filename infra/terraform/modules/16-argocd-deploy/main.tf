@@ -93,3 +93,35 @@ spec:
     - CreateNamespace=true
 YAML
 }
+
+resource "kubectl_manifest" "sample_fastapi" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-fastapi
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/sample-fastapi
+    helm:
+      values: |
+        image:
+          repository: ${var.sample_fastapi_image_repository}
+        redis:
+          host: ${var.sample_fastapi_redis_host}
+          port: ${var.sample_fastapi_redis_port}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sample-fastapi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}

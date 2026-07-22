@@ -8,12 +8,14 @@ resource "helm_release" "argocd" {
   version          = "10.1.2"
   namespace        = "argocd"
   create_namespace = true
-  
-  values  = [ file("${path.module}/my-values.yaml") ]
 
-  set {
-    name  = "configs.secret.argocdServerAdminPassword"
-    value = bcrypt("@abcd1234") 
-  }
+  values = [file("${path.module}/my-values.yaml")]
+
+  set = [
+    {
+      name  = "configs.secret.argocdServerAdminPassword"
+      value = bcrypt("@abcd1234")
+    }
+  ]
 }
 

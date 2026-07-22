@@ -33,12 +33,8 @@ prometheus:
   prometheusSpec:
     # Helm release name에 의존하지 않고 명시적인 라벨로 ServiceMonitor를 선택합니다.
     serviceMonitorSelectorNilUsesHelmValues: false
-    serviceMonitorSelector:
-      matchLabels:
-        monitoring: prometheus
-    serviceMonitorNamespaceSelector:
-      matchLabels:
-        monitoring: prometheus
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
     resources:
       requests:
         cpu: 200m
@@ -56,3 +52,87 @@ grafana:
       cpu: 100m
       memory: 256Mi
   adminPassword: "${grafana_admin_password}"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'finops-dashboards'
+          orgId: 1
+          folder: 'FinOps'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/finops-dashboards
+  dashboards:
+    finops-dashboards:
+      finops-overview:
+        json: |
+          {
+            "title": "FinOps Overview",
+            "uid": "finops-overview",
+            "timezone": "browser",
+            "schemaVersion": 39,
+            "version": 1,
+            "refresh": "30s",
+            "time": { "from": "now-1h", "to": "now" },
+            "panels": [
+              {
+                "id": 1,
+                "title": "Pod CPU Usage (cores)",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "targets": [
+                  {
+                    "expr": "sum(rate(container_cpu_usage_seconds_total{namespace!=\"kube-system\", container!=\"\", container!=\"POD\"}[5m])) by (pod)",
+                    "legendFormat": "{{pod}}",
+                    "refId": "A"
+                  }
+                ]
+              },
+              {
+                "id": 2,
+                "title": "HPA Current vs Desired Replicas",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "targets": [
+                  {
+                    "expr": "kube_horizontalpodautoscaler_status_current_replicas",
+                    "legendFormat": "current - {{horizontalpodautoscaler}}",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "kube_horizontalpodautoscaler_status_desired_replicas",
+                    "legendFormat": "desired - {{horizontalpodautoscaler}}",
+                    "refId": "B"
+                  }
+                ]
+              },
+              {
+                "id": 3,
+                "title": "Pod Restart Count",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "targets": [
+                  {
+                    "expr": "sum(kube_pod_container_status_restarts_total{namespace!=\"kube-system\"}) by (pod)",
+                    "legendFormat": "{{pod}}",
+                    "refId": "A"
+                  }
+                ]
+              }
+            ],
+            "templating": {
+              "list": [
+                {
+                  "name": "datasource",
+                  "type": "datasource",
+                  "query": "prometheus",
+                  "current": {}
+                }
+              ]
+            }
+          }
