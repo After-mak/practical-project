@@ -38,3 +38,9 @@ variable "elasticache_node_type" {
   type        = string
   default     = "cache.t3.micro"
 }
+
+variable "sample_fastapi_image_tag" {
+  description = "EKS에 배포할 Sample FastAPI ECR 이미지 태그"
+  type        = string
+  default     = "v0.1.0"
+}

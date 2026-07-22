@@ -75,8 +75,53 @@ resource "argocd_application" "mak-app" {
     }
     sync_policy {
       automated {
-        prune         = true
-        self_heal     = true # Git 상태와 다르면 K8s 리소스를 자동으로 맞춤
+        prune     = true
+        self_heal = true # Git 상태와 다르면 K8s 리소스를 자동으로 맞춤
+      }
+      sync_options = ["CreateNamespace=true"]
+    }
+  }
+}
+
+# EKS가 다시 생성되어도 Argo CD가 GitOps Chart를 읽어 Sample FastAPI와 Worker를 복구합니다.
+# 실제 ECR 주소와 ElastiCache Endpoint는 Terraform 결과를 Helm values로 주입합니다.
+resource "argocd_application" "sample_fastapi" {
+  metadata {
+    name      = "sample-fastapi"
+    namespace = "argocd"
+  }
+
+  spec {
+    project = "default"
+
+    source {
+      repo_url        = "https://github.com/After-mak/mak-argocd-deploy.git"
+      target_revision = "main"
+      path            = "charts/sample-fastapi"
+
+      helm {
+        values = yamlencode({
+          image = {
+            repository = var.sample_fastapi_image_repository
+            tag        = var.sample_fastapi_image_tag
+          }
+          redis = {
+            host = var.sample_fastapi_redis_host
+            port = var.sample_fastapi_redis_port
+          }
+        })
+      }
+    }
+
+    destination {
+      server    = "https://kubernetes.default.svc"
+      namespace = "sample-fastapi"
+    }
+
+    sync_policy {
+      automated {
+        prune     = true
+        self_heal = true
       }
       sync_options = ["CreateNamespace=true"]
     }
@@ -96,7 +141,7 @@ resource "argocd_application" "postgres-app" {
       target_revision = "main"
 
       # 2. Chart.yaml이 들어있는 폴더 경로 지정
-      path            = "charts/postgres" 
+      path = "charts/postgres"
     }
 
     destination {
@@ -105,8 +150,8 @@ resource "argocd_application" "postgres-app" {
     }
     sync_policy {
       automated {
-        prune       = true
-        self_heal   = true # Git 상태와 다르면 K8s 리소스를 자동으로 맞춤     
+        prune     = true
+        self_heal = true
       }
       sync_options = ["CreateNamespace=true"]
     }
