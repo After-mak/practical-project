@@ -1,7 +1,7 @@
 variable "aws_profile" {
   description = "AWS CLI 프로필 이름"
   type        = string
-  default     = "admin-seonggyu"
+  default     = "kt_cloud_infra2"
 }
 
 variable "db_user" {
@@ -24,11 +24,5 @@ variable "tailscale_auth_key" {
 variable "domain_name" {
   description = "서비스 도메인 이름"
   type        = string
-  default     = "tuby.shop"
-}
-
-variable "acm_certificate_arn" {
-  description = "init에서 발급받은 ACM 인증서 ARN"
-  type        = string
-  default     = ""
+  default     = "vche.cloud"
 }

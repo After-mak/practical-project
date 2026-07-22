@@ -1,4 +1,4 @@
-# alb의 sg를 설정하는 부분과 같이 부가 설정을 담당하는 yaml
+# alb의 sg를 설정하는 부분과 route 53 https 연결 같이 부가 설정을 담당하는 yaml
 apiVersion: gateway.k8s.aws/v1beta1
 kind: LoadBalancerConfiguration
 metadata:

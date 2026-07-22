@@ -1,83 +1,120 @@
-# terraform {
-#   required_providers {
-#     kubernetes = {
-#       source  = "hashicorp/kubernetes"
-#       version = "~> 2.30" 
-#     }
-#     helm = {
-#       source  = "hashicorp/helm"
-#       version = "~> 2.14"
-#     }
-#   }
-# }
+# ============================================================
+# 1. IAM Policy (AWS 공식 정책 다운로드)
+# ============================================================
+# AWS 공식 정책 문서를 JSON형태로 GitHub에서 다운로드
+data "http" "aws_lb_controller_policy" {
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v${var.lbc_version}/docs/install/iam_policy.json"
+}
+# 공식 정책 문서를 하나의 권한으로 만들기
+resource "aws_iam_policy" "this" {
+  name        = "${var.cluster_name}-aws-lb-controller"
+  description = "IAM policy for AWS Load Balancer Controller"
+  policy      = data.http.aws_lb_controller_policy.response_body
+}
 
-# provider "kubernetes" {
-#   config_path = "~/.kube/config"
-# }
+# ============================================================
+# 2. IRSA (IAM Roles for Service Accounts)
+# ============================================================
+# pod가 권한을 사용할 수 있게 하는 권한을 담은 증명서 만들기 / 누가 누구한테 권한을 빌릴 것인가가 명시되어있어야함
+# [eks cluster 내부에 특정 pod가 aws 의 권한을 빌리기]
+data "aws_iam_policy_document" "assume" {
+  statement {
+    # pod가 권한달라고 할 때 조건이 맞으면 허용해주는 옵션
+    effect  = "Allow"
+    # 어떤 방식으로 권한을 빌릴 것인가 => pod가 사용하는 JWT token 방식으로 빌림
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    #eks cluster가 발급한 token만 신뢰하는 옵션
+    principals {
+      type        = "Federated"
+      identifiers = [var.oidc_provider_arn]
+    }
 
-# provider "helm" {
-#   kubernetes {
-#     config_path = "~/.kube/config"
-#   }
-# }
+    # 특정 ServiceAccount만 이 Role 사용 가능
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(var.cluster_oidc_issuer_url, "https://", "")}:sub"
+      values   = ["system:serviceaccount:${var.namespace}:${var.service_account_name}"]
+    }
 
-# # ----------------------------------------------------------------
-# # [단계 1] 쿠버네티스 표준 Gateway API CRD 설치(Gateway,HTTPRoute 목적)
-# # ----------------------------------------------------------------
-# # NGINX Gateway Fabric이 동작하려면 클러스터에 Gateway API 표준 규격이 선언되어 있어야 합니다.
-# # 공식 릴리즈된 표준 CRD를 먼저 클러스터에 적용합니다.
-# resource "helm_release" "gateway_api_crds" {
-#   name             = "gateway-api-crds"
-#   repository       = "https://helm.nginx.com/stable"
-#   chart            = "gateway-api-crds"
-#   version          = "1.1.0" # 선호하는 Gateway API 버전 규격 사용
-#   namespace        = "gateway-system"
-# }
+    # AWS STS용 토큰만 허용
+    condition {
+      test     = "StringEquals"
+      variable = "${replace(var.cluster_oidc_issuer_url, "https://", "")}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+  }
+}
+# Role 만들기 (github에서 다운받은 내용 사용)
+resource "aws_iam_role" "this" {
+  name               = "${var.cluster_name}-aws-lb-controller"
+  assume_role_policy = data.aws_iam_policy_document.assume.json
+}
+# Role에 권한 카드 붙이기
+resource "aws_iam_role_policy_attachment" "this" {
+  role       = aws_iam_role.this.name
+  policy_arn = aws_iam_policy.this.arn
+}
 
-# # ----------------------------------------------------------------
-# # [단계 2] NGINX Gateway Fabric 설치 (기존 nginx-ingress 대체)
-# # ----------------------------------------------------------------
-# resource "helm_release" "nginx_gateway" {
-#   name             = "nginx-gateway"
-#   repository       = "https://helm.nginx.com/stable"
-#   chart            = "nginx-gateway-fabric"
-#   version          = "1.3.0" # 최신 안정화 버전
-#   namespace        = "nginx-gateway"
-#   create_namespace = true
+# ============================================================
+# 3. Kubernetes Gateway API CRDs (표준 스펙)
+# ============================================================
+# GitHub release에서 Gateway API CRD YAML 다운로드
+data "http" "gateway_api_crds_yaml" {
+  url = "https://github.com/kubernetes-sigs/gateway-api/releases/download/${var.gateway_api_version}/standard-install.yaml"
+}
 
-#   # CRD가 먼저 설치 완료된 후 헬름 차트가 배포되어야 하므로 의존성을 명시합니다.
-#   depends_on = [helm_release.gateway_api_crds]
-# }
+data "kubectl_file_documents" "gateway_api_crds" {
+  content = data.http.gateway_api_crds_yaml.response_body
+}
 
-# # ----------------------------------------------------------------
-# # [단계 3] 인프라 관점의 진입문(Gateway) 리소스 생성
-# # ----------------------------------------------------------------
-# # 외부 L7 로드밸런서를 생성하고 80번 포트를 열어 모든 네임스페이스의 Route 규칙을 허용합니다.
-# resource "kubernetes_manifest" "k8s_gateway" {
-#   manifest = {
-#     apiVersion = "gateway.networking.k8s.io/v1"
-#     kind       = "Gateway"
-#     metadata = {
-#       name      = "external-gateway"
-#       namespace = "nginx-gateway"
-#     }
-#     spec = {
-#       gatewayClassName = "nginx" # NGINX Gateway Fabric이 제공하는 클래스명 지정
-#       listeners = [
-#         {
-#           name     = "http"
-#           protocol = "HTTP"
-#           port     = 80
-#           allowedRoutes = {
-#             namespaces = {
-#               from = "All" # 다른 네임스페이스(예: argocd)에 있는 HTTPRoute도 바인딩 가능하게 설정
-#             }
-#           }
-#         }
-#       ]
-#     }
-#   }
+# 각 CRD를 클러스터에 직접 적용
+resource "kubectl_manifest" "gateway_api_crds" {
+  for_each          = data.kubectl_file_documents.gateway_api_crds.manifests
+  yaml_body         = each.value
+  server_side_apply = true
+  force_conflicts   = true
+}
 
-#   # NGINX Gateway Fabric 컨트롤러가 먼저 띄워져 있어야 이 진입문을 활성화할 수 있습니다.
-#   depends_on = [helm_release.nginx_gateway]
-# }
+# ============================================================
+# 4. AWS LBC 전용 Gateway CRDs (AWS 확장)
+# ============================================================
+data "http" "lbc_gateway_crds_yaml" {
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v${var.lbc_version}/config/crd/gateway/gateway-crds.yaml"
+}
+
+data "kubectl_file_documents" "lbc_gateway_crds" {
+  content = data.http.lbc_gateway_crds_yaml.response_body
+}
+# 각 LBC CRD를 클러스터에 직접 적용
+resource "kubectl_manifest" "lbc_gateway_crds" {
+  for_each          = data.kubectl_file_documents.lbc_gateway_crds.manifests
+  yaml_body         = each.value
+  server_side_apply = true
+  force_conflicts   = true
+  depends_on        = [kubectl_manifest.gateway_api_crds]
+}
+
+# ============================================================
+# 5. Helm으로 ALB Controller 설치
+# ============================================================
+resource "helm_release" "this" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  namespace  = var.namespace
+  version    = var.lbc_version
+
+  set = [
+    { name = "clusterName", value = var.cluster_name },
+    { name = "serviceAccount.create", value = "true" },
+    { name = "serviceAccount.name", value = var.service_account_name },
+    { name = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn", value = aws_iam_role.this.arn },
+    { name = "controllerConfig.featureGates.ALBGatewayAPI", value = "true" }
+  ]
+
+  depends_on = [
+    aws_iam_role_policy_attachment.this,
+    kubectl_manifest.gateway_api_crds,
+    kubectl_manifest.lbc_gateway_crds
+  ]
+}

@@ -124,7 +124,7 @@ resource "helm_release" "aws_lb_controller" {
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
   namespace  = "kube-system"
-  version    = "3.4.0" # 1.13.0(=컨트롤러 v2.13.0)은 ALB Gateway API 미지원, 최소 2.14.0 이상 필요
+  version    = "3.4.0" # 최소 2.14.0 이상 필요
 
   set = [
     { name = "clusterName", value = module.project03_eks.cluster_name },
