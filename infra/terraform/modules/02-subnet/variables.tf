@@ -15,3 +15,7 @@ variable "name" {
 variable "vpc_id" {
 
 }
+variable "cluster_role_subnet" {
+  default = null
+  description = "Discern subnet to use the aws lb controller "
+}

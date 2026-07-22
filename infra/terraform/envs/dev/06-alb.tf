@@ -1,16 +1,70 @@
+# ############################################
+# # 6. ALB (Public Load Balancer)
+# ############################################
+# kubectl을 이용하여 eks cluster에 접근할 수 있게 허용해주는 부분
+provider "kubectl" {
+  host                   = module.project03_eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
+  load_config_file       = false
+  lazy_load              = true
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name, "--profile", var.aws_profile]
+  }
+}
 
-############################################
-# 6. ALB (Public Load Balancer)
-############################################
-module "alb" {
-  source = "../../modules/12-alb"
+data "aws_acm_certificate" "this" {
+  domain   = var.domain_name
+  statuses = ["ISSUED"]
+}
+# CRD/컨트롤러 이후 기본 세팅 =================
+resource "kubectl_manifest" "gatewayclass" {
+  yaml_body  = file("${path.module}/gateway_api/gatewayclass.yaml")
+  depends_on = [kubectl_manifest.gateway_api_crds, helm_release.aws_lb_controller]
+}
 
-  name   = "project03"
-  vpc_id = module.project03_vpc.vpc_id
-  public_subnet_ids = [
-    module.project03_public_subnet_a.subnet_id,
-    module.project03_public_subnet_c.subnet_id
-  ]
-  alb_sg_id           = module.security_groups.alb_sg_id
-  acm_certificate_arn = var.acm_certificate_arn
+resource "kubectl_manifest" "lb_config" {
+  yaml_body = templatefile("${path.module}/gateway_api/loadbalancerconfigure.yaml", {
+    certificate_arn = data.aws_acm_certificate.this.arn
+  })
+  depends_on = [kubectl_manifest.lbc_gateway_crds, helm_release.aws_lb_controller]
+}
+# gateway 생성 => alb 생성 ===================
+resource "kubectl_manifest" "gateway" {
+  yaml_body  = file("${path.module}/gateway_api/gateway.yaml")
+  depends_on = [kubectl_manifest.gatewayclass, kubectl_manifest.lb_config]
+}
+# target group 생성 ===================
+resource "kubectl_manifest" "target_group_config" {
+  yaml_body  = file("${path.module}/gateway_api/targetgroupconfigure.yaml")
+  depends_on = [kubectl_manifest.lbc_gateway_crds, kubectl_manifest.service]
+}
+# service 및 deploy 생성 ================
+resource "kubectl_manifest" "service" {
+  yaml_body  = file("${path.module}/gateway_api/service.yaml")
+  depends_on = [kubectl_manifest.gateway,kubectl_manifest.deploy]
+}
+resource "kubectl_manifest" "deploy" {
+  yaml_body  = file("${path.module}/gateway_api/deploy.yaml")
+  depends_on = [kubectl_manifest.gateway]
+}
+# route 생성 =======================
+resource "kubectl_manifest" "route" {
+  yaml_body  = file("${path.module}/gateway_api/route.yaml")
+  depends_on = [kubectl_manifest.gateway,
+                kubectl_manifest.service,
+                kubectl_manifest.target_group_config]
+}
+
+
+# ALB 대기 (이 다음 route53을 달아야되기 때문에 pod에서 요청 넘기고 실제 alb가 생성되기까지 기다리기) 
+resource "time_sleep" "wait_for_alb" {
+  depends_on      = [kubectl_manifest.gateway]
+  create_duration = "300s"
+}
+# alb arn, host zone id 등 필요한 정보를 얻어내기 위해 data 사용
+data "aws_lb" "this" {
+  name       = "project03-alb"
+  depends_on = [time_sleep.wait_for_alb]
 }

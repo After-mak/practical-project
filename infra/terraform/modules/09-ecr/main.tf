@@ -2,6 +2,14 @@ resource "aws_ecr_repository" "this" {
   name = var.repository_name
   image_tag_mutability = var.image_tag_mutability
 
+  # 이미지가 남아있으면 삭제 차단 (실수 방지)
+  force_delete = false
+
+  # 이미지 유무와 관계없이 terraform destroy 차단
+  lifecycle {
+    prevent_destroy = true
+  }
+
   # 이미지 푸시 시 취약점 자동 스캔
   image_scanning_configuration {
     scan_on_push = true
