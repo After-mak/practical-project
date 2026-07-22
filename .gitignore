@@ -18,9 +18,21 @@ crash.log
 # S3 이름 노출 방지
 backend.hcl
 
+# dev 브랜치에서 관리하는 문서 제외 규칙입니다.
 /docs
 
+# === Python/FastAPI 로컬 실행 생성물 ===
+# __pycache__와 pyc 파일은 Python 실행 중 자동 생성되므로 Git에 올리지 않습니다.
 __pycache__/
 *.pyc
+
+# 로컬 가상환경은 개발자 PC마다 경로와 패키지 상태가 달라서 Git에 올리지 않습니다.
 .venv/
+
+# IDE가 자동 생성하는 개인별 설정과 캐시 파일은 Git에 올리지 않습니다.
 .vscode/
+
+# 로컬 환경변수와 부하 테스트 결과는 저장소에 올리지 않습니다.
+.env
+*.env.local
+k6/results/

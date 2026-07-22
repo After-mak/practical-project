@@ -6,7 +6,7 @@ resource "aws_db_instance" "this" {
   identifier             = "project03-db"
   engine                 = "postgres"
   engine_version         = "15"
-  instance_class         = "db.t3.micro" # 프리티어 제한
+  instance_class         = "db.t3.small"
   allocated_storage      = 20
   multi_az               = false
   username               = var.db_user

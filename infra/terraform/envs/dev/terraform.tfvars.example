@@ -1,16 +1,8 @@
 # aws 공유 계정 접근
 aws_profile = "admin-본인프로필"
-
 tailscale_auth_key = "tskey-auth-kmbLTWh5fB11CNTRL-LpQfaDJ99xNszMJpzLAwwNysn6SoSYWh"
-
 db_user = "scott"
-
 db_password = "12345678"
-
 domain_name = "tuby.shop"
-
 acm_certificate_arn = "ACM ARN 값"
-
-# alb를 삭제하기전에 eks를 삭제하는 부분을 방지하는 부분
-# terraform destroy -target kubectl_manifest.route -target kubectl_manifest.gateway -target kubectl_manifest.gatewayclass -target kubectl_manifest.target_group_config -target kubectl_manifest.lb_config -auto-approve
-# terraform destroy --auto-approve
+grafana_admin_password = "grafana 관리자 비밀번호"

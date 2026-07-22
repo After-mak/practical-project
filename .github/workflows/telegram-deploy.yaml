@@ -20,11 +20,19 @@ jobs:
       env:
         # 환경변수로 안전하게 먼저 빼두기
         RECOMMENDED_REPLICAS: ${{ github.event.client_payload.recommended_replicas }}
+        IMAGE_TAG: ${{ github.event.client_payload.image_tag }}
       run: |
         cd deploy-repo
         
-        # 텔레그램 봇 백엔드가 보낸 파라미터(client_payload)를 안전하게 매핑
-        yq -i ".replicaCount = env(RECOMMENDED_REPLICAS)" charts/mak-app/values.yaml
+        # 1. Replica 변경 (값이 들어온 경우에만)
+        if [ -n "$RECOMMENDED_REPLICAS" ]; then
+          yq -i ".replicaCount = env(RECOMMENDED_REPLICAS)" charts/mak-app/values.yaml
+        fi
+
+        # 2. Image Tag 변경 (값이 들어온 경우에만)
+        if [ -n "$IMAGE_TAG" ]; then
+          yq -i ".image.tag = env(IMAGE_TAG) | .image.tag style=\"double\"" charts/mak-app/values.yaml
+        fi
         
         echo "=== 수정된 values.yaml 내용 확인 ==="
         cat charts/mak-app/values.yaml
@@ -37,7 +45,7 @@ jobs:
         
         git add charts/mak-app/values.yaml
         if ! git diff --cached --quiet; then
-          git commit -m "Chg: [GitOps] 패턴 분석 기반 replicaCount 자동 변경 (by Telegram Approval)"
+          git commit -m "Chg: [GitOps] 텔레그램 승인 기반 배포 설정 변경 (tag/replicas)"
           git push origin main
           echo "성공적으로 배포 저장소에 푸시되었습니다!"
         else

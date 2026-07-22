@@ -1,0 +1,64 @@
+x-api-environment: &api-environment
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_DB: 0
+  REDIS_SSL: "false"
+  REDIS_SSL_CERT_REQS: required
+  REDIS_CONNECT_TIMEOUT: 5
+  REDIS_QUEUE_KEY: dev:sample:queue
+  REDIS_SOCKET_TIMEOUT: 5
+  REDIS_HEALTH_CHECK_INTERVAL: 30
+  REDIS_RETRY_ATTEMPTS: 2
+
+x-api-service: &api-service
+  build:
+    context: ./apps/sample-fastapi
+  image: sample-fastapi:v0.4.0-local
+  environment: *api-environment
+  depends_on:
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+
+  sample-api-1:
+    <<: *api-service
+    ports:
+      - "8000:8000"
+
+  sample-api-2:
+    <<: *api-service
+    ports:
+      - "8001:8000"
+
+  queue-worker:
+    <<: *api-service
+    command: ["python", "worker.py"]
+    profiles: ["worker"]
+    environment:
+      <<: *api-environment
+      WORKER_PROCESSING_SECONDS: 0.25
+      WORKER_METRICS_PORT: 9100
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9100/metrics')"]
+
+volumes:
+  redis-data:

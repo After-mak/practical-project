@@ -1,6 +1,5 @@
 # Prometheus/Grafana/Alertmanager 커스텀 설정
 # 담당: 한윤성 (FinOps/모니터링 파트)
-
 alertmanager:
   alertmanagerSpec:
     resources:
@@ -20,20 +19,26 @@ alertmanager:
       group_interval: 5m
       repeat_interval: 12h
       routes:
-        - receiver: 'telegram'
+        - receiver: 'tg-gateway-webhook'
           matchers:
             - namespace = "default"
     receivers:
       - name: 'null'
-      - name: 'telegram'
-        telegram_configs:
-          # TODO: 실제 토큰/chat_id는 여기에 직접 넣지 말고 terraform 변수로 주입 예정
-          - bot_token: '<TELEGRAM_BOT_TOKEN_PLACEHOLDER>'
-            chat_id: 0
-            parse_mode: 'HTML'
-
+      - name: 'tg-gateway-webhook'
+        webhook_configs:
+          # TODO: tg-gateway Service의 정확한 이름/네임스페이스는 mak-argocd-deploy 매니페스트 확인 후 확정 필요 (임종원님 확인 필요)
+          - url: 'http://tg-gateway-service.default.svc.cluster.local:8000/webhook/alertmanager'
+            send_resolved: true
 prometheus:
   prometheusSpec:
+    # Helm release name에 의존하지 않고 명시적인 라벨로 ServiceMonitor를 선택합니다.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector:
+      matchLabels:
+        monitoring: prometheus
+    serviceMonitorNamespaceSelector:
+      matchLabels:
+        monitoring: prometheus
     resources:
       requests:
         cpu: 200m
@@ -42,7 +47,6 @@ prometheus:
         cpu: 500m
         memory: 1Gi
     retention: 7d
-
 grafana:
   resources:
     requests:
@@ -51,5 +55,4 @@ grafana:
     limits:
       cpu: 100m
       memory: 256Mi
-  # TODO: 운영 전 admin 비밀번호도 시크릿으로 교체
-  adminPassword: "changeme"
+  adminPassword: "${grafana_admin_password}"

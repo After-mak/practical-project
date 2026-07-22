@@ -32,6 +32,9 @@ provider "kubernetes" {
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.project03_eks.cluster_name]
+    args        = ["eks", "get-token", "--region", "ap-northeast-2", "--cluster-name", module.project03_eks.cluster_name]
+    env = {
+      AWS_PROFILE = var.aws_profile
+    }
   }
 }
