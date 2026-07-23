@@ -19,9 +19,8 @@ data "aws_ecr_repository" "finops_analyzer" {
   name = "finops-analyzer"
 }
 
-# AWS infrastructure and Kubernetes resources use separate Terraform states.
-# Read the ElastiCache connection information from the infrastructure state so
-# a newly-created cluster receives the Redis endpoint without manual input.
+# Infra와 Kubernetes는 Terraform State를 분리하여 관리하므로,
+# Infra State에서 ElastiCache 연결 정보를 읽어 Argo CD Helm values에 자동 주입합니다.
 data "terraform_remote_state" "infra" {
   backend = "s3"
 
