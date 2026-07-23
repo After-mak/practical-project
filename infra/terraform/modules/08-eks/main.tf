@@ -19,13 +19,48 @@ module "eks" {
   }
 
   eks_managed_node_groups = {
-    default = {
+    eks-management-node = {
+      name                   = "eks-management-node"
+      instance_types         = var.instance_types
+      ami_type               = var.ami_type
+      min_size               = 2
+      max_size               = 3
+      desired_size           = 2
+      vpc_security_group_ids = var.node_security_group_ids
+
+      labels = {
+        role = "management"
+      }
+    }
+
+    eks-worker-node = {
+      name                   = "eks-worker-node"
       instance_types         = var.instance_types
       ami_type               = var.ami_type
       min_size               = var.min_size
       max_size               = var.max_size
       desired_size           = var.desired_size
       vpc_security_group_ids = var.node_security_group_ids
+
+      labels = {
+        role = "worker"
+      }
+    }
+  }
+
+  access_entries = {
+    for arn in var.admin_users : arn => {
+      kubernetes_groups = []
+      principal_arn     = arn
+
+      policy_associations = {
+        cluster_admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = {
+            type = "cluster"
+          }
+        }
+      }
     }
   }
 }
