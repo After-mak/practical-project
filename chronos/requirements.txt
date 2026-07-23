@@ -1,0 +1,6 @@
+# Chronos-2 기반 CPU 사용량 예측 스크립트 의존성
+# torch는 CPU 전용 빌드 사용 (설치 시: pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu)
+chronos-forecasting==2.3.1
+numpy==2.5.1
+requests==2.34.2
+torch==2.13.0
