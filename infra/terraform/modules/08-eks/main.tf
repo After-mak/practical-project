@@ -9,7 +9,8 @@ module "eks" {
   subnet_ids                     = var.subnet_ids
   cluster_endpoint_public_access = true
 
-  enable_cluster_creator_admin_permissions = true
+  authentication_mode                      = "API_AND_CONFIG_MAP"
+  enable_cluster_creator_admin_permissions = false
   enable_irsa                              = true
 
   cluster_addons = {
@@ -29,7 +30,8 @@ module "eks" {
       vpc_security_group_ids = var.node_security_group_ids
 
       labels = {
-        role = "management"
+        role                      = "management"
+        "karpenter.sh/controller" = "true"
       }
     }
 
