@@ -21,11 +21,7 @@ module "project03_eks" {
   desired_size   = 2
 
   admin_users = var.eks_admin_users
-  
-  # karpenter가 워커 노드를 인식하기 위한 label
-  node_labels = {
-    "karpenter.sh/controller" = "true"  
-  }
+
 }
 
 # eks 접속용 인증 토큰 가져오기
@@ -42,6 +38,21 @@ provider "kubernetes" {
     args        = ["eks", "get-token", "--region", "ap-northeast-2", "--cluster-name", module.project03_eks.cluster_name]
     env = {
       AWS_PROFILE = var.aws_profile
+    }
+  }
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = module.project03_eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.project03_eks.cluster_certificate_authority_data)
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--region", "ap-northeast-2", "--cluster-name", module.project03_eks.cluster_name]
+      env = {
+        AWS_PROFILE = var.aws_profile
+      }
     }
   }
 }

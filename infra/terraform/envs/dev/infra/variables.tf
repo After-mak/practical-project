@@ -31,7 +31,7 @@ variable "azs" {
 variable "eks_admin_users" {
   description = "EKS 클러스터 관리자 권한을 부여할 IAM 사용자 ARN 목록"
   type        = list(string)
-  default     = [
+  default = [
     "arn:aws:iam::372666940978:user/admin-jongwon",
     "arn:aws:iam::372666940978:user/admin-mingyu",
     "arn:aws:iam::372666940978:user/admin-mingi",

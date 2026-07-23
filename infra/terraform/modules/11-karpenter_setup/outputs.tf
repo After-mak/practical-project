@@ -7,3 +7,8 @@ output "queue_name" {
   description = "Karpenter Spot 중단 알림 SQS 큐 이름"
   value       = module.karpenter.queue_name
 }
+
+output "iam_role_arn" {
+  description = "Karpenter Controller IAM Role ARN"
+  value       = module.karpenter.iam_role_arn
+}
