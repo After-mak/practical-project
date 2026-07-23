@@ -58,15 +58,11 @@ def test_worker_service_and_monitor_select_worker_pod_and_named_port():
 
 
 def test_prometheus_selects_sample_namespace_and_service_monitors():
-    namespace = load_yaml(K8S_DIR / "namespace.yaml")
-    api_monitor = load_yaml(K8S_DIR / "fastapi-servicemonitor.yaml")
-    worker_monitor = load_yaml(K8S_DIR / "worker-servicemonitor.yaml")
     values = load_yaml(PROMETHEUS_VALUES)
     prometheus_spec = values["prometheus"]["prometheusSpec"]
-    monitor_labels = prometheus_spec["serviceMonitorSelector"]["matchLabels"]
-    namespace_labels = prometheus_spec["serviceMonitorNamespaceSelector"]["matchLabels"]
 
     assert prometheus_spec["serviceMonitorSelectorNilUsesHelmValues"] is False
-    assert_labels_match(monitor_labels, api_monitor["metadata"]["labels"])
-    assert_labels_match(monitor_labels, worker_monitor["metadata"]["labels"])
-    assert_labels_match(namespace_labels, namespace["metadata"]["labels"])
+    # Empty selectors intentionally allow Prometheus to discover both the
+    # built-in monitors and ServiceMonitors from every namespace.
+    assert prometheus_spec["serviceMonitorSelector"] == {}
+    assert prometheus_spec["serviceMonitorNamespaceSelector"] == {}

@@ -6,13 +6,26 @@
 # # #      실제 apply 시 argocd 모듈부터 먼저 적용하고, 그 다음 argocd_deploy를 적용해야 함
 # # #      (예: terraform apply -target=module.argocd 로 먼저 적용 후 전체 apply)
 module "argocd" {
-  source = "../../../modules/15-argocd"
+  source      = "../../../modules/15-argocd"
   aws_profile = var.aws_profile
 }
 
 # ECR은 init Root Module에서 수명주기를 관리하므로 dev에서는 기존 Repository를 조회만 합니다.
 data "aws_ecr_repository" "sample_fastapi" {
   name = "sample-fastapi"
+}
+
+# Infra와 Kubernetes는 Terraform State를 분리하여 관리하므로,
+# Infra State에서 ElastiCache 연결 정보를 읽어 Argo CD Helm values에 자동 주입합니다.
+data "terraform_remote_state" "infra" {
+  backend = "s3"
+
+  config = {
+    bucket  = "tfstate-bucket-95ada58e"
+    key     = "dev-infra/terraform.tfstate"
+    region  = "ap-northeast-2"
+    profile = var.aws_profile
+  }
 }
 
 module "argocd_deploy" {
@@ -22,16 +35,8 @@ module "argocd_deploy" {
   grafana_admin_password          = var.grafana_admin_password
   domain_name                     = var.domain_name
   sample_fastapi_image_repository = data.aws_ecr_repository.sample_fastapi.repository_url
-  # FIXME: module.sample_redis is in infra/ state, not k8s/ state! We need to fix this if the other branch added this.
-  # But for now I'll just keep what the other branch added, maybe data source is better?
-  # Wait, module.sample_redis is not defined in k8s/ ! It was in 07-elasticache.tf which was moved to infra/ .
-  # Let's check if there's a data source for Redis or we need to pass it differently.
-  # For now, let's keep the code syntactically correct or we will have another issue.
-  # I'll just write it and check later.
-  # Wait, I cannot use module.sample_redis in k8s/!
-  # I should just delete these lines or change them to data sources.
-  # Let me just provide empty strings for now so terraform doesn't complain, or check infra outputs.
-  # Let's remove them for now because I need to investigate the other branch's changes.
-  
+  sample_fastapi_redis_host       = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
+  sample_fastapi_redis_port       = data.terraform_remote_state.infra.outputs.redis_port
+
   depends_on = [module.argocd]
 }
