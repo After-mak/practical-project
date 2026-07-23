@@ -2,6 +2,9 @@
 
 > 현재 Queue는 Redis 공유 Queue를 사용합니다. `/ready`, Queue API와 `/metrics`를 정상적으로 사용하려면 Redis가 먼저 실행되어야 합니다. 가장 간단한 전체 실행 방법은 저장소 루트에서 `docker compose up -d --build redis sample-api-1 sample-api-2`를 실행하는 것입니다. Worker는 `docker compose --profile worker up -d --scale queue-worker=2 queue-worker`로 별도 실행합니다. 상세 내용은 `docs/redis-queue-runbook.md`를 참고합니다.
 
+부하·지연·오류·Queue 변경 API는 `LOAD_TEST_TOKEN`으로 보호됩니다. `/health`, `/ready`,
+`/api/normal`, `/api/queue/status`, `/metrics`만 인증 없이 유지합니다.
+
 이 문서는 샘플 FastAPI 앱을 로컬에서 실행하고 확인하는 방법을 정리합니다.
 
 Windows PowerShell과 Linux/macOS는 가상환경 활성화 명령이 다르므로 구분해서 실행해야 합니다.
@@ -197,6 +200,12 @@ deactivate
 
 Docker가 설치되어 있다면 프로젝트 루트에서 이미지를 빌드합니다.
 
+먼저 저장소에 커밋하지 않을 테스트 Token을 셸 환경변수로 설정합니다.
+
+```bash
+export LOAD_TEST_TOKEN='local-development-secret'
+```
+
 ### Windows PowerShell
 
 ```powershell
@@ -214,11 +223,41 @@ docker build -t sample-fastapi:local apps/sample-fastapi
 컨테이너를 실행합니다.
 
 ```bash
-docker run --rm -p 8000:8000 sample-fastapi:local
+docker run --rm -e LOAD_TEST_TOKEN="$LOAD_TEST_TOKEN" -p 8000:8000 sample-fastapi:local
 ```
 
 호스트의 8000번 포트가 이미 사용 중이면 아래처럼 8010번으로 연결합니다.
 
 ```bash
-docker run --rm -p 8010:8000 sample-fastapi:local
+docker run --rm -e LOAD_TEST_TOKEN="$LOAD_TEST_TOKEN" -p 8010:8000 sample-fastapi:local
 ```
+
+보호된 API 요청에는 Token 헤더를 전달합니다.
+
+```bash
+curl -H "X-Test-Token: ${LOAD_TEST_TOKEN}" http://127.0.0.1:8000/api/cpu
+curl -X POST -H "X-Test-Token: ${LOAD_TEST_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"count":10,"job_type":"local-load"}' \
+  http://127.0.0.1:8000/api/queue/bulk
+```
+
+## 10. Queue 장애 복구
+
+Queue는 다음 Redis Key를 사용합니다.
+
+| Key | 역할 |
+|---|---|
+| `dev:sample:queue` | 처리 대기 Pending |
+| `dev:sample:queue:processing` | Worker가 reserve한 작업 |
+| `dev:sample:queue:leases` | visibility timeout |
+| `dev:sample:queue:dead-letter` | 최대 재시도 초과 작업 |
+| `dev:sample:queue:completed:<job-id>` | ACK된 작업 ID 중복 억제 |
+
+Worker는 `LMOVE/BLMOVE`로 Pending 작업을 Processing으로 원자 이동합니다. 성공하면 ACK,
+실패하면 최대 `QUEUE_MAX_RETRIES`까지 재등록하며 초과 작업은 DLQ로 이동합니다.
+Worker가 비정상 종료하면 `QUEUE_VISIBILITY_TIMEOUT_SECONDS` 이후 다른 Worker가 복구합니다.
+
+이 구조는 작업 유실을 방지하는 at-least-once 처리입니다. 작업 처리 완료 직후 ACK 전에
+프로세스가 종료되는 극단 상황에서는 중복 실행 가능성이 있으므로 실제 외부 부작용을
+추가할 때는 작업 ID 기반 멱등 처리를 함께 구현해야 합니다.

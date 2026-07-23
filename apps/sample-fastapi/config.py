@@ -60,6 +60,20 @@ class Settings:
     redis_retry_attempts: int = field(
         default_factory=lambda: int(os.getenv("REDIS_RETRY_ATTEMPTS", "2"))
     )
+    queue_max_retries: int = field(
+        default_factory=lambda: int(os.getenv("QUEUE_MAX_RETRIES", "3"))
+    )
+    queue_visibility_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.getenv("QUEUE_VISIBILITY_TIMEOUT_SECONDS", "60")
+        )
+    )
+    queue_recovery_interval_seconds: float = field(
+        default_factory=lambda: float(os.getenv("QUEUE_RECOVERY_INTERVAL_SECONDS", "10"))
+    )
+    queue_completed_ttl_seconds: int = field(
+        default_factory=lambda: int(os.getenv("QUEUE_COMPLETED_TTL_SECONDS", "86400"))
+    )
 
     # Worker 기본 작업 처리 시간과 prometheus_client HTTP 서버 포트입니다.
     worker_processing_seconds: float = field(
@@ -67,6 +81,14 @@ class Settings:
     )
     worker_metrics_port: int = field(
         default_factory=lambda: int(os.getenv("WORKER_METRICS_PORT", "9100"))
+    )
+    worker_job_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("WORKER_JOB_TIMEOUT_SECONDS", "30"))
+    )
+
+    # 부하·오류·Queue 변경 API는 이 Secret과 X-Test-Token 헤더가 일치할 때만 허용합니다.
+    load_test_token: str | None = field(
+        default_factory=lambda: os.getenv("LOAD_TEST_TOKEN") or None
     )
 
     def __post_init__(self):
@@ -84,6 +106,15 @@ class Settings:
             raise ValueError("Redis timeouts must be greater than zero")
         if self.redis_health_check_interval < 0 or self.redis_retry_attempts < 0:
             raise ValueError("Redis health check and retry values cannot be negative")
+        if self.queue_max_retries < 0:
+            raise ValueError("QUEUE_MAX_RETRIES cannot be negative")
+        if (
+            self.queue_visibility_timeout_seconds <= 0
+            or self.queue_recovery_interval_seconds <= 0
+            or self.queue_completed_ttl_seconds <= 0
+            or self.worker_job_timeout_seconds <= 0
+        ):
+            raise ValueError("Queue and worker timeout values must be greater than zero")
 
     @property
     def redis_tls_enabled(self) -> bool:

@@ -17,13 +17,18 @@ from redis.exceptions import RedisError
 from config import Settings
 from metrics import (
     QUEUE_FAILED_TOTAL,
+    QUEUE_DEAD_LETTER_LENGTH,
+    QUEUE_DEAD_LETTER_TOTAL,
     QUEUE_LENGTH,
+    QUEUE_PROCESSING_LENGTH,
     QUEUE_PROCESSED_TOTAL,
+    QUEUE_RECOVERED_TOTAL,
+    QUEUE_RETRY_TOTAL,
     WORKER_ACTIVE_JOBS,
     WORKER_PROCESSED_TOTAL,
     WORKER_PROCESSING_DURATION_SECONDS,
 )
-from queue_service import QueueService, create_queue_service
+from queue_service import QueueService, ReservedJob, create_queue_service
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -33,11 +38,20 @@ logger = logging.getLogger("queue-worker")
 class QueueWorker:
     """Queue 소비, 작업 처리, 메트릭 기록과 정상 종료를 담당합니다."""
 
-    def __init__(self, service: QueueService, processing_seconds: float = 0.25):
+    def __init__(
+        self,
+        service: QueueService,
+        processing_seconds: float = 0.25,
+        job_timeout_seconds: float = 30,
+        recovery_interval_seconds: float = 10,
+    ):
         """QueueService와 작업당 기본 처리 시간을 주입받습니다."""
 
         self.service = service
         self.processing_seconds = max(0.0, processing_seconds)
+        self.job_timeout_seconds = max(0.01, job_timeout_seconds)
+        self.recovery_interval_seconds = max(0.01, recovery_interval_seconds)
+        self.last_recovery_at = 0.0
         self.stop_event = threading.Event()
 
     def stop(self, *_args):
@@ -59,8 +73,29 @@ class QueueWorker:
         requested_seconds = job.get("payload", {}).get(
             "processing_seconds", self.processing_seconds
         )
-        processing_seconds = min(max(float(requested_seconds), 0.0), 30.0)
+        processing_seconds = max(float(requested_seconds), 0.0)
+        if processing_seconds > self.job_timeout_seconds:
+            raise TimeoutError(
+                f"job processing time exceeds {self.job_timeout_seconds:g}s timeout"
+            )
         time.sleep(processing_seconds)
+
+    def recover_stale_jobs(self):
+        """주기적으로 비정상 종료 Worker가 남긴 Processing 작업을 복구합니다."""
+
+        now = time.monotonic()
+        if now - self.last_recovery_at < self.recovery_interval_seconds:
+            return
+        recovered = self.service.recover_stale()
+        self.last_recovery_at = now
+        if recovered["retried"]:
+            QUEUE_RECOVERED_TOTAL.inc(recovered["retried"])
+            QUEUE_RETRY_TOTAL.inc(recovered["retried"])
+        if recovered["dead_lettered"]:
+            QUEUE_RECOVERED_TOTAL.inc(recovered["dead_lettered"])
+            QUEUE_DEAD_LETTER_TOTAL.inc(recovered["dead_lettered"])
+        if any(recovered.values()):
+            logger.warning("Recovered stale processing jobs: %s", recovered)
 
     def run_once(self, timeout: int = 1) -> bool:
         """작업을 최대 하나 처리하고 처리 여부를 반환합니다.
@@ -69,25 +104,42 @@ class QueueWorker:
         Histogram 및 최신 Redis Queue Length를 반드시 갱신합니다.
         """
 
-        job = self.service.dequeue(timeout=timeout)
-        if job is None:
+        self.recover_stale_jobs()
+        reservation = self.service.reserve(timeout=timeout)
+        if reservation is None:
             QUEUE_LENGTH.set(self.service.length())
             return False
+        job = reservation.job
+
+        if self.service.is_completed(job["id"]):
+            self.service.acknowledge(reservation)
+            logger.info("Discarded already completed job id=%s", job["id"])
+            return True
 
         WORKER_ACTIVE_JOBS.inc()
         started_at = time.perf_counter()
         try:
             self.process_job(job)
+            self.service.acknowledge(reservation)
             QUEUE_PROCESSED_TOTAL.inc()
             WORKER_PROCESSED_TOTAL.inc()
             logger.info("Processed job id=%s type=%s", job["id"], job["type"])
-        except Exception:
+        except Exception as exc:
             QUEUE_FAILED_TOTAL.inc()
+            destination = self.service.retry_or_dead_letter(
+                reservation, type(exc).__name__
+            )
+            if destination == "retry":
+                QUEUE_RETRY_TOTAL.inc()
+            elif destination == "dead-letter":
+                QUEUE_DEAD_LETTER_TOTAL.inc()
             logger.exception("Failed to process job id=%s", job.get("id"))
         finally:
             WORKER_PROCESSING_DURATION_SECONDS.observe(time.perf_counter() - started_at)
             WORKER_ACTIVE_JOBS.dec()
             QUEUE_LENGTH.set(self.service.length())
+            QUEUE_PROCESSING_LENGTH.set(self.service.processing_length())
+            QUEUE_DEAD_LETTER_LENGTH.set(self.service.dead_letter_length())
         return True
 
     def run(self):
@@ -108,7 +160,12 @@ def main():
     """환경 설정, 종료 Signal, 메트릭 서버와 Worker 루프를 초기화합니다."""
 
     settings = Settings()
-    worker = QueueWorker(create_queue_service(settings), settings.worker_processing_seconds)
+    worker = QueueWorker(
+        create_queue_service(settings),
+        settings.worker_processing_seconds,
+        settings.worker_job_timeout_seconds,
+        settings.queue_recovery_interval_seconds,
+    )
     signal.signal(signal.SIGTERM, worker.stop)
     signal.signal(signal.SIGINT, worker.stop)
     start_http_server(settings.worker_metrics_port)

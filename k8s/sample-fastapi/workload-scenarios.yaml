@@ -1,0 +1,261 @@
+# KRR 관측 전용 Deployment와 Service입니다. 기본 애플리케이션 배포에는 포함되지 않으며,
+# deploy.sh에서 사용한 동일한 image URI로 replace-me를 치환한 뒤 필요한 시나리오만 적용합니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-fastapi-baseline
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-fastapi
+      workload-type: baseline
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-fastapi
+        workload-type: baseline
+    spec:
+      containers:
+        - name: fastapi
+          image: sample-fastapi:replace-me
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: sample-fastapi-config
+            - secretRef:
+                name: sample-fastapi-load-test
+                optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-fastapi-baseline
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: baseline
+spec:
+  selector:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: baseline
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-fastapi-overallocated
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: overallocated
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-fastapi
+      workload-type: overallocated
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-fastapi
+        workload-type: overallocated
+    spec:
+      containers:
+        - name: fastapi
+          image: sample-fastapi:replace-me
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: sample-fastapi-config
+            - secretRef:
+                name: sample-fastapi-load-test
+                optional: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-fastapi-overallocated
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: overallocated
+spec:
+  selector:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: overallocated
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-fastapi-idle
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: idle
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-fastapi
+      workload-type: idle
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-fastapi
+        workload-type: idle
+    spec:
+      containers:
+        - name: fastapi
+          image: sample-fastapi:replace-me
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: sample-fastapi-config
+            - secretRef:
+                name: sample-fastapi-load-test
+                optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-fastapi-idle
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: idle
+spec:
+  selector:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: idle
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-fastapi-spike
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: spike
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-fastapi
+      workload-type: spike
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-fastapi
+        workload-type: spike
+    spec:
+      containers:
+        - name: fastapi
+          image: sample-fastapi:replace-me
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: sample-fastapi-config
+            - secretRef:
+                name: sample-fastapi-load-test
+                optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-fastapi-spike
+  namespace: sample-fastapi
+  labels:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: spike
+spec:
+  selector:
+    app.kubernetes.io/name: sample-fastapi
+    workload-type: spike
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

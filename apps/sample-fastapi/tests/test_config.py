@@ -21,6 +21,12 @@ REDIS_ENV_NAMES = (
     "REDIS_RETRY_ATTEMPTS",
     "REDIS_QUEUE_KEY",
     "QUEUE_KEY",
+    "QUEUE_MAX_RETRIES",
+    "QUEUE_VISIBILITY_TIMEOUT_SECONDS",
+    "QUEUE_RECOVERY_INTERVAL_SECONDS",
+    "QUEUE_COMPLETED_TTL_SECONDS",
+    "WORKER_JOB_TIMEOUT_SECONDS",
+    "LOAD_TEST_TOKEN",
 )
 
 
@@ -84,8 +90,32 @@ def test_rediss_url_takes_precedence_over_redis_ssl_flag():
         ({"redis_ssl_cert_reqs": "invalid"}, "REDIS_SSL_CERT_REQS"),
         ({"redis_connect_timeout": 0}, "timeouts"),
         ({"redis_retry_attempts": -1}, "retry"),
+        ({"queue_max_retries": -1}, "QUEUE_MAX_RETRIES"),
+        ({"queue_visibility_timeout_seconds": 0}, "timeout"),
+        ({"worker_job_timeout_seconds": 0}, "timeout"),
     ],
 )
 def test_invalid_redis_settings_fail_fast(kwargs, message):
     with pytest.raises(ValueError, match=message):
         Settings(**kwargs)
+
+
+def test_queue_reliability_and_load_token_settings_are_read_from_environment(
+    monkeypatch,
+):
+    clear_redis_environment(monkeypatch)
+    monkeypatch.setenv("QUEUE_MAX_RETRIES", "5")
+    monkeypatch.setenv("QUEUE_VISIBILITY_TIMEOUT_SECONDS", "45")
+    monkeypatch.setenv("QUEUE_RECOVERY_INTERVAL_SECONDS", "7")
+    monkeypatch.setenv("QUEUE_COMPLETED_TTL_SECONDS", "3600")
+    monkeypatch.setenv("WORKER_JOB_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("LOAD_TEST_TOKEN", "secret-value")
+
+    settings = Settings()
+
+    assert settings.queue_max_retries == 5
+    assert settings.queue_visibility_timeout_seconds == 45
+    assert settings.queue_recovery_interval_seconds == 7
+    assert settings.queue_completed_ttl_seconds == 3600
+    assert settings.worker_job_timeout_seconds == 12
+    assert settings.load_test_token == "secret-value"

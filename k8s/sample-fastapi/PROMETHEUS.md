@@ -17,6 +17,10 @@ ServiceMonitor만 선택합니다. 따라서 Helm release 이름에 따른 `rele
 - `sample_worker_active_jobs`
 - `sample_worker_processing_duration_seconds_count`
 - `sample_worker_processing_duration_seconds_sum`
+- `sample_queue_processing_length`
+- `sample_queue_dead_letter_length`
+- `sample_queue_retry_total`
+- `sample_queue_recovered_total`
 
 ## 1. 사전 확인
 
@@ -104,6 +108,14 @@ Prometheus에서 다음 쿼리를 실행합니다.
 
 ```promql
 max(sample_queue_length)
+```
+
+```promql
+max(sample_queue_processing_length)
+```
+
+```promql
+max(sample_queue_dead_letter_length)
 ```
 
 ```promql

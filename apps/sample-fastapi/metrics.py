@@ -9,11 +9,24 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, ge
 
 # Redis에서 조회한 현재 대기 작업 수입니다. KEDA Prometheus Trigger가 사용합니다.
 QUEUE_LENGTH = Gauge("sample_queue_length", "Current Redis queue length")
+QUEUE_PROCESSING_LENGTH = Gauge(
+    "sample_queue_processing_length", "Jobs reserved by workers and awaiting ACK"
+)
+QUEUE_DEAD_LETTER_LENGTH = Gauge(
+    "sample_queue_dead_letter_length", "Jobs moved to the dead letter queue"
+)
 
 # Queue 등록, 처리 성공, 처리·연결 실패 누적 횟수입니다.
 QUEUE_ENTER_TOTAL = Counter("sample_queue_enter_total", "Jobs added to the queue")
 QUEUE_PROCESSED_TOTAL = Counter("sample_queue_processed_total", "Jobs processed successfully")
 QUEUE_FAILED_TOTAL = Counter("sample_queue_failed_total", "Queue or worker operation failures")
+QUEUE_RETRY_TOTAL = Counter("sample_queue_retry_total", "Jobs scheduled for retry")
+QUEUE_RECOVERED_TOTAL = Counter(
+    "sample_queue_recovered_total", "Stale processing jobs recovered after worker failure"
+)
+QUEUE_DEAD_LETTER_TOTAL = Counter(
+    "sample_queue_dead_letter_total", "Jobs moved to the dead letter queue"
+)
 
 # 각 Worker 프로세스가 현재 처리 중인 작업과 처리 시간 분포를 기록합니다.
 WORKER_PROCESSED_TOTAL = Counter(

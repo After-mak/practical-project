@@ -16,6 +16,11 @@ NAMESPACE="sample-fastapi"
 IMAGE_TAG="${IMAGE_TAG:-v0.1.0}"
 QUEUE_KEY="${QUEUE_KEY:-dev:sample:queue}"
 
+if [[ -z "${LOAD_TEST_TOKEN:-}" ]]; then
+  echo "LOAD_TEST_TOKEN must be supplied without writing it to source control." >&2
+  exit 1
+fi
+
 if [[ -z "${AWS_PROFILE:-}" && -f "${TFVARS_FILE}" ]]; then
   AWS_PROFILE="$(awk -F'"' '/^[[:space:]]*aws_profile[[:space:]]*=/{print $2; exit}' "${TFVARS_FILE}")"
   export AWS_PROFILE
@@ -93,6 +98,14 @@ kubectl -n "${NAMESPACE}" create configmap sample-fastapi-config \
   --from-literal=REDIS_HEALTH_CHECK_INTERVAL="30" \
   --from-literal=REDIS_RETRY_ATTEMPTS="2" \
   --from-literal=REDIS_QUEUE_KEY="${QUEUE_KEY}" \
+  --from-literal=QUEUE_MAX_RETRIES="${QUEUE_MAX_RETRIES:-3}" \
+  --from-literal=QUEUE_VISIBILITY_TIMEOUT_SECONDS="${QUEUE_VISIBILITY_TIMEOUT_SECONDS:-60}" \
+  --from-literal=QUEUE_RECOVERY_INTERVAL_SECONDS="${QUEUE_RECOVERY_INTERVAL_SECONDS:-10}" \
+  --from-literal=QUEUE_COMPLETED_TTL_SECONDS="${QUEUE_COMPLETED_TTL_SECONDS:-86400}" \
+  --from-literal=WORKER_JOB_TIMEOUT_SECONDS="${WORKER_JOB_TIMEOUT_SECONDS:-30}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n "${NAMESPACE}" create secret generic sample-fastapi-load-test \
+  --from-literal=LOAD_TEST_TOKEN="${LOAD_TEST_TOKEN}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "[8/8] FastAPI와 Worker Deployment 적용"
