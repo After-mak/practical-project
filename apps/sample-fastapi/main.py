@@ -6,10 +6,11 @@
 
 import logging
 import random
+import secrets
 import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
@@ -18,12 +19,15 @@ from metrics import (
     HTTP_ERRORS_TOTAL,
     HTTP_REQUESTS_TOTAL,
     HTTP_REQUEST_DURATION_SECONDS,
+    QUEUE_DEAD_LETTER_LENGTH,
     QUEUE_ENTER_TOTAL,
     QUEUE_FAILED_TOTAL,
     QUEUE_LENGTH,
+    QUEUE_PROCESSING_LENGTH,
     QUEUE_PROCESSED_TOTAL,
     render_metrics,
 )
+from config import Settings
 from queue_service import QueueService, create_queue_service
 
 
@@ -41,10 +45,36 @@ class QueueJoinRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class QueueBulkJoinRequest(QueueJoinRequest):
+    """한 번의 부하 테스트 요청으로 등록할 작업 수를 제한합니다."""
+
+    count: int = Field(default=1, ge=1, le=1000)
+
+
 def get_queue_service() -> QueueService:
     """엔드포인트에 QueueService를 주입해 테스트 대역으로 교체할 수 있게 합니다."""
 
     return queue_service
+
+
+def get_settings() -> Settings:
+    """환경 설정을 요청 의존성으로 제공해 테스트에서 안전하게 교체합니다."""
+
+    return Settings()
+
+
+def require_test_token(
+    x_test_token: str | None = Header(default=None, alias="X-Test-Token"),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """부하·지연·오류·Queue 변경 API를 공유 Secret으로 보호합니다."""
+
+    if not settings.load_test_token:
+        raise HTTPException(status_code=503, detail="Load test API is not configured")
+    if x_test_token is None or not secrets.compare_digest(
+        x_test_token, settings.load_test_token
+    ):
+        raise HTTPException(status_code=403, detail="Invalid test token")
 
 
 def redis_unavailable(exc: RedisError) -> HTTPException:
@@ -104,7 +134,7 @@ def normal():
     return {"message": "normal request", "status": "success"}
 
 
-@app.get("/api/cpu")
+@app.get("/api/cpu", dependencies=[Depends(require_test_token)])
 def cpu_load():
     """반복 제곱 연산으로 CPU 사용량 상승을 재현합니다."""
 
@@ -114,7 +144,7 @@ def cpu_load():
     return {"message": "cpu load generated", "result": result}
 
 
-@app.get("/api/memory")
+@app.get("/api/memory", dependencies=[Depends(require_test_token)])
 def memory_load():
     """요청 처리 중 약 100MB의 임시 문자열 데이터를 할당합니다."""
 
@@ -122,7 +152,7 @@ def memory_load():
     return {"message": "memory load generated", "items": len(data)}
 
 
-@app.get("/api/slow")
+@app.get("/api/slow", dependencies=[Depends(require_test_token)])
 def slow():
     """2초 지연으로 느린 응답 상황을 의도적으로 재현합니다."""
 
@@ -130,7 +160,7 @@ def slow():
     return {"message": "slow response"}
 
 
-@app.get("/api/error")
+@app.get("/api/error", dependencies=[Depends(require_test_token)])
 def error():
     """장애·오류율 관측을 위해 약 30% 확률로 의도적인 HTTP 500을 반환합니다."""
 
@@ -143,6 +173,7 @@ def error():
 def join_queue(
     request: QueueJoinRequest | None = None,
     service: QueueService = Depends(get_queue_service),
+    _authorized: None = Depends(require_test_token),
 ):
     """작업을 Redis Queue에 등록하고 작업 ID와 최신 Queue Length를 반환합니다."""
 
@@ -163,8 +194,37 @@ def join_queue(
     }
 
 
+@app.post("/api/queue/bulk")
+def bulk_join_queue(
+    request: QueueBulkJoinRequest,
+    service: QueueService = Depends(get_queue_service),
+    _authorized: None = Depends(require_test_token),
+):
+    """재현 가능한 Queue 부하를 위해 제한된 수의 작업을 일괄 등록합니다."""
+
+    try:
+        jobs = service.enqueue_many(request.count, request.job_type, request.payload)
+        job_ids = [job["id"] for job in jobs]
+        current_queue_length = service.length()
+    except RedisError as exc:
+        QUEUE_FAILED_TOTAL.inc()
+        raise redis_unavailable(exc) from exc
+
+    QUEUE_ENTER_TOTAL.inc(request.count)
+    QUEUE_LENGTH.set(current_queue_length)
+    return {
+        "message": "joined queue",
+        "accepted": len(job_ids),
+        "job_ids": job_ids,
+        "queue_length": current_queue_length,
+    }
+
+
 @app.post("/api/queue/process")
-def process_queue(service: QueueService = Depends(get_queue_service)):
+def process_queue(
+    service: QueueService = Depends(get_queue_service),
+    _authorized: None = Depends(require_test_token),
+):
     """로컬 수동 검증을 위해 작업 하나를 즉시 소비하는 호환 API입니다.
 
     실제 배포에서는 별도 Queue Worker가 작업을 처리하며 k6 Scale-in 테스트도 이 API를
@@ -198,11 +258,22 @@ def queue_status(service: QueueService = Depends(get_queue_service)):
         QUEUE_FAILED_TOTAL.inc()
         raise redis_unavailable(exc) from exc
     QUEUE_LENGTH.set(current_queue_length)
-    return {"queue_length": current_queue_length}
+    processing_length = service.processing_length()
+    dead_letter_length = service.dead_letter_length()
+    QUEUE_PROCESSING_LENGTH.set(processing_length)
+    QUEUE_DEAD_LETTER_LENGTH.set(dead_letter_length)
+    return {
+        "queue_length": current_queue_length,
+        "processing_length": processing_length,
+        "dead_letter_length": dead_letter_length,
+    }
 
 
 @app.delete("/api/queue/reset")
-def reset_queue(service: QueueService = Depends(get_queue_service)):
+def reset_queue(
+    service: QueueService = Depends(get_queue_service),
+    _authorized: None = Depends(require_test_token),
+):
     """로컬·개발 환경의 Queue 테스트 데이터를 모두 초기화합니다."""
 
     try:
@@ -211,6 +282,8 @@ def reset_queue(service: QueueService = Depends(get_queue_service)):
         QUEUE_FAILED_TOTAL.inc()
         raise redis_unavailable(exc) from exc
     QUEUE_LENGTH.set(0)
+    QUEUE_PROCESSING_LENGTH.set(0)
+    QUEUE_DEAD_LETTER_LENGTH.set(0)
     return {"message": "queue reset", "deleted_items": deleted_items, "queue_length": 0}
 
 
@@ -220,6 +293,8 @@ def metrics(service: QueueService = Depends(get_queue_service)):
 
     try:
         QUEUE_LENGTH.set(service.length())
+        QUEUE_PROCESSING_LENGTH.set(service.processing_length())
+        QUEUE_DEAD_LETTER_LENGTH.set(service.dead_letter_length())
     except RedisError as exc:
         QUEUE_FAILED_TOTAL.inc()
         raise redis_unavailable(exc) from exc
