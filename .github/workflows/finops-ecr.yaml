@@ -77,20 +77,18 @@ jobs:
           token: ${{ secrets.GITOPS_TOKEN }}
           path: gitops
 
-      - name: Update FinOps Analyzer image tag
+      - name: Copy FinOps helm chart and update image tag
         env:
           IMAGE_TAG: v0.1.${{ github.run_number }}
         run: |
-          test -f "gitops/$GITOPS_VALUES_FILE" || mkdir -p "gitops/$(dirname "$GITOPS_VALUES_FILE")"
+          mkdir -p gitops/charts/finops
+          cp -r finops/charts/finops/* gitops/charts/finops/
+
           python - <<'PY'
           import os
           from pathlib import Path
 
           values_path = Path("gitops") / os.environ["GITOPS_VALUES_FILE"]
-          if not values_path.exists():
-              print(f"File {values_path} not found in gitops repo yet.")
-              exit(0)
-
           lines = values_path.read_text(encoding="utf-8").splitlines(keepends=True)
           inside_image = False
 
@@ -119,14 +117,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if [ -f "$GITOPS_VALUES_FILE" ]; then
-            git add "$GITOPS_VALUES_FILE"
+          git add charts/finops
 
-            if git diff --cached --quiet; then
-              echo "GitOps image tag is already $IMAGE_TAG"
-              exit 0
-            fi
-
-            git commit -m "chore: deploy finops-analyzer $IMAGE_TAG"
-            git push origin HEAD:main
+          if git diff --cached --quiet; then
+            echo "GitOps chart and image tag is already up to date"
+            exit 0
           fi
+
+          git commit -m "chore: deploy finops-analyzer $IMAGE_TAG and sync helm chart"
+          git push origin HEAD:main
