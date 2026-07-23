@@ -1,0 +1,35 @@
+replicaCount: 1
+
+image:
+  # AWS ECR 레지스트리 URI 표준 형식 (예: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/finops-analyzer)
+  repository: "finops-analyzer"
+  pullPolicy: Always
+  tag: "v0.1.0"
+
+service:
+  type: ClusterIP
+  port: 8000
+
+env:
+  # 기본적으로 Mock 모드를 지원하며 실환경 배포 시 false로 지정
+  mockIntegration: "true"
+  prometheusUrl: "http://prometheus.monitoring.svc.cluster.local:9090"
+  chronosUrl: "http://chronos-model.monitoring.svc.cluster.local:8000"
+  krrUrl: "http://krr.monitoring.svc.cluster.local:8080"
+  telegramBotToken: ""
+  telegramChatId: ""
+  autoSendTelegram: "false"
+
+cronjob:
+  enabled: true
+  schedule: "0 3 * * *"  # 매일 새벽 3시 (Cron 표현식: 새벽 3시 0분)
+  targetDeployment: "payment-api"
+  targetNamespace: "prod"
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

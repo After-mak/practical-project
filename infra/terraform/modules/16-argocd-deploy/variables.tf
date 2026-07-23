@@ -26,3 +26,9 @@ variable "sample_fastapi_redis_port" {
   type        = number
   default     = 6379
 }
+
+variable "finops_analyzer_image_repository" {
+  description = "FinOps Analyzer가 사용하는 ECR Repository URL"
+  type        = string
+  default     = ""
+}

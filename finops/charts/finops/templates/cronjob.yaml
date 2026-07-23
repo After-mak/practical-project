@@ -1,0 +1,33 @@
+{{- if .Values.cronjob.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "finops.fullname" . }}-daily-analyzer
+  labels:
+    {{- include "finops.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "finops.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: finops-analyzer-trigger
+              image: curlimages/curl:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Executing daily FinOps analysis at 3:00 AM..."
+                  curl -s -X POST "http://{{ include "finops.fullname" . }}:{{ .Values.service.port }}/analyze" \
+                    -H "Content-Type: application/json" \
+                    -d '{"deployment_name": "{{ .Values.cronjob.targetDeployment }}", "namespace": "{{ .Values.cronjob.targetNamespace }}", "send_telegram": true}'
+{{- end }}

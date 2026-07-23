@@ -1,0 +1,132 @@
+name: Build FinOps Analyzer and Update GitOps
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - feature/finops
+    paths:
+      - "finops/**"
+      - ".github/workflows/finops-ecr.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finops-gitops
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: finops-analyzer
+  GITOPS_REPOSITORY: After-mak/mak-argocd-deploy
+  GITOPS_VALUES_FILE: charts/finops/values.yaml
+
+jobs:
+  build-push-and-update-gitops:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout application source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Confirm FinOps Analyzer ECR repository
+        run: |
+          aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push FinOps Analyzer image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        working-directory: finops
+        run: |
+          set -euo pipefail
+
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --pull -t "$IMAGE_URI" .
+
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "Image already exists: $IMAGE_URI"
+          else
+            docker push "$IMAGE_URI"
+          fi
+
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update FinOps Analyzer image tag
+        env:
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        run: |
+          test -f "gitops/$GITOPS_VALUES_FILE" || mkdir -p "gitops/$(dirname "$GITOPS_VALUES_FILE")"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          values_path = Path("gitops") / os.environ["GITOPS_VALUES_FILE"]
+          if not values_path.exists():
+              print(f"File {values_path} not found in gitops repo yet.")
+              exit(0)
+
+          lines = values_path.read_text(encoding="utf-8").splitlines(keepends=True)
+          inside_image = False
+
+          for index, line in enumerate(lines):
+              if line.strip() == "image:":
+                  inside_image = True
+                  continue
+              if inside_image and line.startswith("  tag:"):
+                  lines[index] = f'  tag: "{os.environ["IMAGE_TAG"]}"\n'
+                  break
+              if inside_image and line and not line.startswith(" "):
+                  raise RuntimeError("image.tag was not found in values.yaml")
+          else:
+              raise RuntimeError("image.tag was not found in values.yaml")
+
+          values_path.write_text("".join(lines), encoding="utf-8")
+          PY
+
+      - name: Commit and push GitOps change
+        working-directory: gitops
+        env:
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -f "$GITOPS_VALUES_FILE" ]; then
+            git add "$GITOPS_VALUES_FILE"
+
+            if git diff --cached --quiet; then
+              echo "GitOps image tag is already $IMAGE_TAG"
+              exit 0
+            fi
+
+            git commit -m "chore: deploy finops-analyzer $IMAGE_TAG"
+            git push origin HEAD:main
+          fi

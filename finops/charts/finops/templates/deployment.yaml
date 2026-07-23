@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "finops.fullname" . }}
+  labels:
+    {{- include "finops.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "finops.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "finops.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MOCK_INTEGRATION
+              value: {{ .Values.env.mockIntegration | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.env.prometheusUrl | quote }}
+            - name: CHRONOS_URL
+              value: {{ .Values.env.chronosUrl | quote }}
+            - name: KRR_URL
+              value: {{ .Values.env.krrUrl | quote }}
+            - name: TELEGRAM_BOT_TOKEN
+              value: {{ .Values.env.telegramBotToken | quote }}
+            - name: TELEGRAM_CHAT_ID
+              value: {{ .Values.env.telegramChatId | quote }}
+            - name: AUTO_SEND_TELEGRAM
+              value: {{ .Values.env.autoSendTelegram | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
