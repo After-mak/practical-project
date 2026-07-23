@@ -118,7 +118,14 @@ def build_report(forecast, stage, elapsed_days, remaining_days, keda_status):
     cpu_usage = forecast["predicted_cpu_usage"]
     scale_out = forecast["scale_out_needed"]
     timestamp = forecast.get("timestamp", "N/A")
-    savings_pct = round((1 - predicted / current) * 100, 1) if current > 0 else 0
+    if current > 0 and predicted < current:
+        pct = round((1 - predicted / current) * 100, 1)
+        cost_line = f"- 예상 비용 절감율: 온디맨드 대비 약 {pct}% 절감 가능"
+    elif current > 0 and predicted > current:
+        pct = round((predicted / current - 1) * 100, 1)
+        cost_line = f"- 예상 비용 증가율: 온디맨드 대비 약 {pct}% 증가 예상 (스케일아웃 필요)"
+    else:
+        cost_line = "- 예상 비용 변화: 없음 (현재 replica 수 유지)"
 
     stage_line = STAGE_DESC.get(stage, STAGE_DESC["loose"])
     if elapsed_days is not None:
@@ -137,7 +144,7 @@ def build_report(forecast, stage, elapsed_days, remaining_days, keda_status):
 - 현재 replicas: {current} → 예측(권장) replicas: {predicted}
 - 예측 CPU 사용률: {cpu_usage}%
 - 스케일아웃 필요 여부: {"예" if scale_out else "아니오"}
-- 예상 비용 절감율: 온디맨드 대비 약 {savings_pct}% 절감 가능
+{cost_line}
 - 스케일링 상태: {keda_status}
 위 권장안을 GitOps(Argo CD) 파이프라인에 최종 승인하여 반영하시겠습니까?
 """
