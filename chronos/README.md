@@ -35,3 +35,18 @@ python3 chronos/chronos_prometheus.py
 ## 출력 (forecast_result.json)
 
 `timestamp`, `pod`, `predicted_cpu_usage`, `scale_out_needed`, `current_replicas`, `predicted_replicas`
+
+## 자동 실행 (cron)
+
+`run_pipeline.sh`가 Prometheus port-forward → 예측 → 리포트 생성까지 한 번에 처리합니다.
+현재 연습 서버에는 1시간마다 자동 실행되도록 cron이 등록되어 있습니다.
+
+```bash
+crontab -l
+# 0 * * * * /home/ubuntu/practical-project/chronos/run_pipeline.sh
+```
+
+로그는 `chronos/pipeline.log`에 쌓입니다.
+
+> 참고: 이건 연습 서버 기준 cron 설정입니다. 실제 운영 환경(EKS)에서는
+> 이 스크립트 로직을 컨테이너화해서 Kubernetes CronJob으로 배포하는 것을 권장합니다.

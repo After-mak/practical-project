@@ -23,7 +23,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
-GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "practical-project")
+GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")
 
 GRAFANA_URL = "http://tuby.shop:3000"
