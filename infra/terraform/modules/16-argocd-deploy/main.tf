@@ -44,6 +44,34 @@ spec:
 YAML
 }
 
+resource "kubectl_manifest" "keda" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keda
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://kedacore.github.io/charts
+    chart: keda
+    targetRevision: 2.20.1
+    helm:
+      releaseName: keda
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keda
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true
+YAML
+}
+
 resource "kubectl_manifest" "mak_app" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1
