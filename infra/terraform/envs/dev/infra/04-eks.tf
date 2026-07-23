@@ -5,7 +5,7 @@ module "project03_eks" {
   source = "../../../modules/08-eks"
 
   cluster_name    = "project03-eks"
-  cluster_version = "1.32"
+  cluster_version = "1.33"
   vpc_id          = module.project03_vpc.vpc_id
   subnet_ids = [
     module.project03_private_subnet_cluster_a.subnet_id,
@@ -19,6 +19,11 @@ module "project03_eks" {
   min_size       = 2
   max_size       = 3
   desired_size   = 2
+  
+  # karpenter가 워커 노드를 인식하기 위한 label
+  node_labels = {
+    "karpenter.sh/controller" = "true"  
+  }
 }
 
 # eks 접속용 인증 토큰 가져오기
