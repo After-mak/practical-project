@@ -145,7 +145,7 @@ spec:
           repository: ${var.finops_analyzer_image_repository}
   destination:
     server: https://kubernetes.default.svc
-    namespace: prod
+    namespace: finops
   syncPolicy:
     automated:
       prune: true
@@ -154,4 +154,30 @@ spec:
     - CreateNamespace=true
 YAML
 }
+
+resource "kubectl_manifest" "krr" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: krr
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/krr
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: finops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
 
