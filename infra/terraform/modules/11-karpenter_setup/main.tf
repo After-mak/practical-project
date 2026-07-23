@@ -17,4 +17,7 @@ module "karpenter" {
 
   # v20 모듈부터는 SQS 생성이 기본값(Default: true)으로 켜져 있어서 옵션 생략이 가능합니다.
   enable_spot_termination = true
+
+  # 기본 namespace: kube-system service account: karpenter 설정
+  irsa_namespace_service_accounts = ["kube-system:karpenter"]
 }
