@@ -5,7 +5,7 @@ module "project03_eks" {
   source = "../../../modules/08-eks"
 
   cluster_name    = "project03-eks"
-  cluster_version = "1.32"
+  cluster_version = "1.33"
   vpc_id          = module.project03_vpc.vpc_id
   subnet_ids = [
     module.project03_private_subnet_cluster_a.subnet_id,
