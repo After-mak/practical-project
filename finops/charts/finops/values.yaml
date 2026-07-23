@@ -1,10 +1,10 @@
 replicaCount: 1
 
 image:
-  # AWS ECR 레지스트리 URI 표준 형식 (예: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/finops-analyzer)
-  repository: "finops-analyzer"
+  # AWS ECR 레지스트리 URI
+  repository: 372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/finops-analyzer
   pullPolicy: Always
-  tag: "v0.1.0"
+  tag: "v0.1.2"
 
 service:
   type: ClusterIP
