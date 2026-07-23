@@ -11,9 +11,12 @@ resource "helm_release" "argocd" {
 
   values = [file("${path.module}/my-values.yaml")]
 
-  set {
-    name  = "configs.secret.argocdServerAdminPassword"
-    value = bcrypt("@abcd1234")
+  # 관리자 비밀번호 Hash를 bcrypt()로 매 Plan마다 다시 만들면 salt가 달라져
+  # 실제 설정 변경이 없어도 Helm Release가 계속 변경 대상으로 표시됩니다.
+  # 기존 Release의 비밀번호는 유지하고, 신규 설치 시에는 Chart가 생성하는
+  # 초기 관리자 Secret을 별도의 비밀번호 관리 절차로 변경합니다.
+  lifecycle {
+    ignore_changes = [set]
   }
 }
 
