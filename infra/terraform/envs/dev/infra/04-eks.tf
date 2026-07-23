@@ -19,8 +19,12 @@ module "project03_eks" {
   min_size       = 2
   max_size       = 3
   desired_size   = 2
-
   admin_users = var.eks_admin_users
+  
+  # karpenter가 워커 노드를 인식하기 위한 label
+  node_labels = {
+    "karpenter.sh/controller" = "true"  
+  }
 }
 
 # eks 접속용 인증 토큰 가져오기
