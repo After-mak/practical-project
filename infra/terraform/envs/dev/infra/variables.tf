@@ -27,3 +27,17 @@ variable "azs" {
   type        = list(string)
   default     = ["ap-northeast-2a", "ap-northeast-2c"]
 }
+
+variable "eks_admin_users" {
+  description = "EKS 클러스터 관리자 권한을 부여할 IAM 사용자 ARN 목록"
+  type        = list(string)
+  default     = [
+    "arn:aws:iam::372666940978:user/admin-jongwon",
+    "arn:aws:iam::372666940978:user/admin-mingyu",
+    "arn:aws:iam::372666940978:user/admin-mingi",
+    "arn:aws:iam::372666940978:user/admin-seonggyu",
+    "arn:aws:iam::372666940978:user/admin-yeongsik",
+    "arn:aws:iam::372666940978:user/admin-sangwoo",
+    "arn:aws:iam::372666940978:user/admin-yunseong"
+  ]
+}
