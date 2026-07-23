@@ -16,9 +16,9 @@ env:
   prometheusUrl: "http://prometheus.monitoring.svc.cluster.local:9090"
   chronosUrl: "http://chronos-model.monitoring.svc.cluster.local:8000"
   krrUrl: "http://krr.monitoring.svc.cluster.local:8080"
-  telegramBotToken: ""
-  telegramChatId: ""
-  autoSendTelegram: "false"
+  telegramBotToken: "8818476894:AAEEIiJvfmTBK5zNpF0_sv12DZmwz17k6kc"
+  telegramChatId: "8753092843"
+  autoSendTelegram: "true"
 
 cronjob:
   enabled: true
