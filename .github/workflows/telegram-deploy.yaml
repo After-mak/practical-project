@@ -21,9 +21,11 @@ jobs:
         # 환경변수로 안전하게 먼저 빼두기
         RECOMMENDED_REPLICAS: ${{ github.event.client_payload.recommended_replicas }}
         IMAGE_TAG: ${{ github.event.client_payload.image_tag }}
+        RECOMMENDED_CPU: ${{ github.event.client_payload.recommended_cpu }}
+        RECOMMENDED_MEM: ${{ github.event.client_payload.recommended_mem }}
       run: |
         cd deploy-repo
-        
+
         # 1. Replica 변경 (값이 들어온 경우에만)
         if [ -n "$RECOMMENDED_REPLICAS" ]; then
           yq -i ".replicaCount = env(RECOMMENDED_REPLICAS)" charts/mak-app/values.yaml
@@ -33,7 +35,17 @@ jobs:
         if [ -n "$IMAGE_TAG" ]; then
           yq -i ".image.tag = env(IMAGE_TAG) | .image.tag style=\"double\"" charts/mak-app/values.yaml
         fi
-        
+
+        # 3. KRR 권장 CPU Request 변경 (값이 들어온 경우에만)
+        if [ -n "$RECOMMENDED_CPU" ]; then
+          yq -i ".resources.requests.cpu = env(RECOMMENDED_CPU) | .resources.requests.cpu style=\"double\"" charts/mak-app/values.yaml
+        fi
+
+        # 4. KRR 권장 Memory Request 변경 (값이 들어온 경우에만)
+        if [ -n "$RECOMMENDED_MEM" ]; then
+          yq -i ".resources.requests.memory = env(RECOMMENDED_MEM) | .resources.requests.memory style=\"double\"" charts/mak-app/values.yaml
+        fi
+
         echo "=== 수정된 values.yaml 내용 확인 ==="
         cat charts/mak-app/values.yaml
 

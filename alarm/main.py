@@ -49,10 +49,14 @@ class DeployRequest(BaseModel):
 class CustomRollbackRequest(BaseModel):
     target_tag: Optional[str] = "v1.0.0"
 
+# Telegram callback_data(64바이트 제한)에 KRR 권장 CPU/Memory를 다 담을 수 없어
+# 배포 승인 메시지의 message_id를 키로 원본 요청을 잠시 보관해둔다.
+_pending_deploy_requests: dict[int, "DeployRequest"] = {}
+
 # ==========================================
 # 🛠️ Helper 함수들
 # ==========================================
-def send_telegram_message(text: str, reply_markup: dict = None):
+def send_telegram_message(text: str, reply_markup: dict = None) -> Optional[dict]:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -66,8 +70,11 @@ def send_telegram_message(text: str, reply_markup: dict = None):
         print(f"📲 Telegram 전송 결과 -> 응답 코드: {res.status_code}")
         if res.status_code != 200:
             print(f"❌ Telegram 전송 실패 상세: {res.text}")
+            return None
+        return res.json()
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
+        return None
 
 def update_telegram_message(chat_id: int, message_id: int, new_text: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
@@ -82,9 +89,9 @@ def update_telegram_message(chat_id: int, message_id: int, new_text: str):
     except Exception as e:
         print(f"❌ Telegram 메시지 수정 에러: {e}")
 
-def trigger_github_workflow(workflow_file: str, inputs: dict = None):
+def trigger_github_workflow(workflow_file: str, inputs: dict = None) -> bool:
     url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/actions/workflows/{workflow_file}/dispatches"
-    
+
     headers = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
@@ -92,23 +99,26 @@ def trigger_github_workflow(workflow_file: str, inputs: dict = None):
     payload = {"ref": TARGET_BRANCH}
     if inputs:
         payload["inputs"] = inputs
-        
+
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=10)
         print(f"📡 GitHub API [{workflow_file}] 호출 완료 -> 응답 코드: {res.status_code}")
-        
-        if res.status_code not in [200, 201, 202, 204]:
+
+        if res.status_code != 204:
             send_telegram_message(
                 f"🚨 *[GitHub Actions 호출 실패]*\n"
                 f"• Workflow: `{workflow_file}`\n"
                 f"• HTTP 상태코드: `{res.status_code}`\n"
                 f"• 토큰/권한 및 `.env` 설정을 확인하세요."
             )
+            return False
+        return True
     except Exception as e:
         print(f"❌ GitHub API 호출 에러: {e}")
         send_telegram_message(f"🚨 *[GitHub API 통신 에러]*: `{e}`")
+        return False
 
-def trigger_repository_dispatch(event_type: str, client_payload: dict = None):
+def trigger_repository_dispatch(event_type: str, client_payload: dict = None) -> bool:
     """telegram-deploy.yaml처럼 repository_dispatch로만 트리거되는 워크플로우 호출용"""
     url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/dispatches"
     headers = {
@@ -121,16 +131,19 @@ def trigger_repository_dispatch(event_type: str, client_payload: dict = None):
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=10)
         print(f"📡 GitHub repository_dispatch [{event_type}] 호출 완료 -> 응답 코드: {res.status_code}")
-        if res.status_code not in [200, 201, 202, 204]:
+        if res.status_code != 204:
             send_telegram_message(
                 f"🚨 *[GitHub Actions 호출 실패]*\n"
                 f"• Event: `{event_type}`\n"
                 f"• HTTP 상태코드: `{res.status_code}`\n"
                 f"• 토큰/권한 및 `.env` 설정을 확인하세요."
             )
+            return False
+        return True
     except Exception as e:
         print(f"❌ GitHub API 호출 에러: {e}")
         send_telegram_message(f"🚨 *[GitHub API 통신 에러]*: `{e}`")
+        return False
 
 # ==========================================
 # 📩 Webhook Endpoints (총 5개)
@@ -211,7 +224,10 @@ async def deploy_request_webhook(req: Optional[DeployRequest] = None):
             {"text": "🔍 대시보드 확인", "url": GRAFANA_URL}
         ]]
     }
-    send_telegram_message(text, reply_markup)
+    sent = send_telegram_message(text, reply_markup)
+    if sent and sent.get("ok"):
+        message_id = sent["result"]["message_id"]
+        _pending_deploy_requests[message_id] = req
     return {"status": "ok"}
 
 @app.post("/webhook/rollout")
@@ -252,20 +268,34 @@ async def telegram_callback_webhook(request: Request):
         message_id = callback["message"]["message_id"]
         
         if callback_data == "rollback_head":
-            update_telegram_message(chat_id, message_id, "⏳ *[롤백 진행 중]* 직전 커밋 버전으로 롤백 파이프라인을 실행합니다...")
-            trigger_github_workflow("rollback.yaml")
-            update_telegram_message(chat_id, message_id, "✅ *[롤백 완료]* 직전 커밋 버전 롤백 파이프라인이 성공적으로 호출되었습니다!")
+            update_telegram_message(chat_id, message_id, "⏳ *[롤백 요청 중]* 직전 배포 커밋 롤백 파이프라인을 호출합니다...")
+            success = trigger_github_workflow("rollback.yaml")
+            if success:
+                update_telegram_message(chat_id, message_id, "✅ *[롤백 workflow 요청 접수]* 직전 배포 커밋 롤백 파이프라인 실행 요청이 정상적으로 접수되었습니다.")
+            else:
+                update_telegram_message(chat_id, message_id, "🚨 *[롤백 요청 실패]* GitHub Actions 호출에 실패했습니다. 로그를 확인하세요.")
 
         elif callback_data.startswith("rollback_custom_"):
             target_tag = callback_data.replace("rollback_custom_", "")
-            update_telegram_message(chat_id, message_id, f"⏳ *[지정 롤백 진행 중]* `{target_tag}` 버전으로 롤백 중입니다...")
-            trigger_github_workflow("rollback-custom.yaml", {"target_tag": target_tag, "target_branch": TARGET_BRANCH})
-            update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 완료]* `{target_tag}` 버전 롤백 파이프라인이 실행되었습니다!")
+            update_telegram_message(chat_id, message_id, f"⏳ *[지정 롤백 요청 중]* `{target_tag}` 버전 롤백 파이프라인을 호출합니다...")
+            success = trigger_github_workflow("rollback-custom.yaml", {"target_tag": target_tag})
+            if success:
+                update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 workflow 요청 접수]* `{target_tag}` 버전 롤백 파이프라인 실행 요청이 정상적으로 접수되었습니다.")
+            else:
+                update_telegram_message(chat_id, message_id, f"🚨 *[지정 롤백 요청 실패]* `{target_tag}` 버전 롤백 호출에 실패했습니다. 로그를 확인하세요.")
 
         elif callback_data.startswith("deploy_approve_"):
             target_tag = callback_data.replace("deploy_approve_", "")
-            update_telegram_message(chat_id, message_id, f"⏳ *[배포 진행 중]* `{target_tag}` 버전 최적화 배포를 시작합니다...")
-            trigger_repository_dispatch("telegram-approved", {"image_tag": target_tag})
-            update_telegram_message(chat_id, message_id, f"🚀 *[배포 승인 완료]* `{target_tag}` 최적화 배포 파이프라인이 성공적으로 가동되었습니다!")
+            update_telegram_message(chat_id, message_id, f"⏳ *[배포 요청 중]* `{target_tag}` 버전 최적화 배포 파이프라인을 호출합니다...")
+            pending = _pending_deploy_requests.pop(message_id, None)
+            payload = {"image_tag": target_tag}
+            if pending:
+                payload["recommended_cpu"] = pending.recommended_cpu
+                payload["recommended_mem"] = pending.recommended_mem
+            success = trigger_repository_dispatch("telegram-approved", payload)
+            if success:
+                update_telegram_message(chat_id, message_id, f"🚀 *[배포 workflow 요청 접수]* `{target_tag}` 최적화 배포 파이프라인 실행 요청이 정상적으로 접수되었습니다.")
+            else:
+                update_telegram_message(chat_id, message_id, f"🚨 *[배포 요청 실패]* `{target_tag}` 배포 호출에 실패했습니다. 로그를 확인하세요.")
 
     return {"status": "ok"}

@@ -14,9 +14,11 @@ jobs:
   revert-commit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Helm Chart Repository
+      - name: Checkout GitOps Deployment Repository
         uses: actions/checkout@v4
         with:
+          repository: '${{ github.repository_owner }}/mak-argocd-deploy'
+          ref: main
           token: ${{ secrets.GITOPS_TOKEN }}
           fetch-depth: 0 # 이전 커밋 이력을 가져오기 위해 0으로 설정
 
@@ -25,19 +27,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      # 핵심: 직전 커밋(HEAD)을 취소하는 새로운 커밋 생성
-      - name: Execute Git Revert
+      # 핵심: values.yaml을 변경한 마지막 배포 커밋만 되돌림 (HEAD가 다른 변경일 위험 회피)
+      - name: Revert Last Deploy Commit
         run: |
-          echo "Executing git revert HEAD..."
-          # --no-edit 옵션으로 커밋 메시지 입력 창이 뜨는 것을 방지하고 자동 커밋
-          git revert --no-edit HEAD
-
-      - name: Push Reverted Commit 
-        run: |
-         # repository_dispatch인 경우 payload의 target_branch를 사용하고, 없으면 main 사용
-          TARGET_BRANCH="${{ github.event.client_payload.target_branch }}"
-          if [ -z "$TARGET_BRANCH" ]; then
-            TARGET_BRANCH="main"
+          LAST_DEPLOY_SHA=$(git log --author="github-actions[bot]" -1 --format=%H -- charts/mak-app/values.yaml)
+          if [ -z "$LAST_DEPLOY_SHA" ]; then
+            echo "❌ charts/mak-app/values.yaml을 변경한 배포 커밋을 찾지 못했습니다."
+            exit 1
           fi
-          
-          git push origin $TARGET_BRANCH
+          echo "Reverting deploy commit: $LAST_DEPLOY_SHA"
+          git revert --no-edit "$LAST_DEPLOY_SHA"
+
+      - name: Push Reverted Commit
+        run: git push origin main
