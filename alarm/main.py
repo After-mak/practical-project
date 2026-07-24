@@ -23,7 +23,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
-GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
+GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "practical-project")
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")
 
 GRAFANA_URL = "http://tuby.shop:3000"
@@ -101,6 +101,30 @@ def trigger_github_workflow(workflow_file: str, inputs: dict = None):
             send_telegram_message(
                 f"🚨 *[GitHub Actions 호출 실패]*\n"
                 f"• Workflow: `{workflow_file}`\n"
+                f"• HTTP 상태코드: `{res.status_code}`\n"
+                f"• 토큰/권한 및 `.env` 설정을 확인하세요."
+            )
+    except Exception as e:
+        print(f"❌ GitHub API 호출 에러: {e}")
+        send_telegram_message(f"🚨 *[GitHub API 통신 에러]*: `{e}`")
+
+def trigger_repository_dispatch(event_type: str, client_payload: dict = None):
+    """telegram-deploy.yaml처럼 repository_dispatch로만 트리거되는 워크플로우 호출용"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/dispatches"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    payload = {"event_type": event_type}
+    if client_payload:
+        payload["client_payload"] = client_payload
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=10)
+        print(f"📡 GitHub repository_dispatch [{event_type}] 호출 완료 -> 응답 코드: {res.status_code}")
+        if res.status_code not in [200, 201, 202, 204]:
+            send_telegram_message(
+                f"🚨 *[GitHub Actions 호출 실패]*\n"
+                f"• Event: `{event_type}`\n"
                 f"• HTTP 상태코드: `{res.status_code}`\n"
                 f"• 토큰/권한 및 `.env` 설정을 확인하세요."
             )
@@ -235,13 +259,13 @@ async def telegram_callback_webhook(request: Request):
         elif callback_data.startswith("rollback_custom_"):
             target_tag = callback_data.replace("rollback_custom_", "")
             update_telegram_message(chat_id, message_id, f"⏳ *[지정 롤백 진행 중]* `{target_tag}` 버전으로 롤백 중입니다...")
-            trigger_github_workflow("rollback-custom.yaml", {"target_tag": target_tag})
+            trigger_github_workflow("rollback-custom.yaml", {"target_tag": target_tag, "target_branch": TARGET_BRANCH})
             update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 완료]* `{target_tag}` 버전 롤백 파이프라인이 실행되었습니다!")
 
         elif callback_data.startswith("deploy_approve_"):
             target_tag = callback_data.replace("deploy_approve_", "")
             update_telegram_message(chat_id, message_id, f"⏳ *[배포 진행 중]* `{target_tag}` 버전 최적화 배포를 시작합니다...")
-            trigger_github_workflow("deploy.yaml", {"target_tag": target_tag})
+            trigger_repository_dispatch("telegram-approved", {"image_tag": target_tag})
             update_telegram_message(chat_id, message_id, f"🚀 *[배포 승인 완료]* `{target_tag}` 최적화 배포 파이프라인이 성공적으로 가동되었습니다!")
 
     return {"status": "ok"}
