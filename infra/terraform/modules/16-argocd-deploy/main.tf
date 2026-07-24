@@ -179,27 +179,4 @@ spec:
 YAML
 }
 
-resource "kubectl_manifest" "yelb_app" {
-  yaml_body = <<YAML
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: yelb
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
-    targetRevision: main
-    path: charts/yelb
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: yelb
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
-YAML
-}
+
