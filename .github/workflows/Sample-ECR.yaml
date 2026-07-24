@@ -8,7 +8,7 @@ on:
       - dev
     paths:
       - "apps/sample-fastapi/**"
-      - ".github/workflows/ECR.yaml"
+      - ".github/workflows/Sample-ECR.yaml"
   # 긴급 재배포나 Workflow 확인이 필요할 때 GitHub 화면에서 수동 실행할 수 있습니다.
   workflow_dispatch:
 
