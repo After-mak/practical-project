@@ -1,7 +1,7 @@
 variable "aws_profile" {
   description = "AWS CLI 프로필 이름"
   type        = string
-  default     = "kt_cloud_infra2"
+  default     = "default"
 }
 variable "domain_name" {
   description = "서비스 도메인 이름"
