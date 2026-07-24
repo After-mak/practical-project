@@ -8,8 +8,8 @@ module "sample_redis" {
   name_prefix = "project03-sample"
   vpc_id      = module.project03_vpc.vpc_id
   subnet_ids = [
-    module.project03_private_subnet_db_a.subnet_id,
-    module.project03_private_subnet_db_c.subnet_id
+    module.project03_private_subnet_cluster_a.subnet_id,
+    module.project03_private_subnet_cluster_c.subnet_id
   ]
 
   eks_node_security_group_id = module.security_groups.eks_node_sg_id

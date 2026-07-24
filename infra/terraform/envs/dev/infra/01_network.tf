@@ -47,17 +47,6 @@ module "project03_private_subnet_cluster_a" {
   map_public_ip = false # 외부에서 IP로 직접 접근할 수 없도록 막음
   name          = "project03-private-subnet-cluster-a"
 }
-# Private Subnet (AZ-a)
-# Rds가 위치될 subnet입니다
-module "project03_private_subnet_db_a" {
-  source        = "../../../modules/02-subnet"
-  vpc_id        = module.project03_vpc.vpc_id
-  cidr_block    = "10.0.20.0/24"
-  az            = var.azs[0]
-  map_public_ip = false # 외부에서 IP로 직접 접근할 수 없도록 막음
-  name          = "project03-private-subnet-db-a"
-}
-
 # Private Subnet (AZ-c)
 # worker node들이 배치되어 cluster로 pod들이 돌아갈 private subnet입니다.
 module "project03_private_subnet_cluster_c" {
@@ -67,17 +56,6 @@ module "project03_private_subnet_cluster_c" {
   az            = var.azs[1]
   map_public_ip = false # 외부에서 IP로 직접 접근할 수 없도록 막음
   name          = "project03-private-subnet-cluster-c"
-}
-
-# Private Subnet (AZ-c)
-# Rds가 위치될 subnet입니다
-module "project03_private_subnet_db_c" {
-  source        = "../../../modules/02-subnet"
-  vpc_id        = module.project03_vpc.vpc_id
-  cidr_block    = "10.0.40.0/24"
-  az            = var.azs[1]
-  map_public_ip = false # 외부에서 IP로 직접 접근할 수 없도록 막음
-  name          = "project03-private-subnet-db-c"
 }
 
 # [4] Internet Gateway (IGW) 생성
