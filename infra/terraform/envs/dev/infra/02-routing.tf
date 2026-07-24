@@ -90,18 +90,9 @@ resource "aws_route_table_association" "cluster_rt_A" {
   route_table_id = aws_route_table.project03_private_rt_a.id
 }
 
-resource "aws_route_table_association" "db_rt_A" {
-  subnet_id      = module.project03_private_subnet_db_a.subnet_id
-  route_table_id = aws_route_table.project03_private_rt_a.id
-}
-
 resource "aws_route_table_association" "cluster_rt_C" {
   subnet_id      = module.project03_private_subnet_cluster_c.subnet_id
   route_table_id = aws_route_table.project03_private_rt_c.id
 }
 
-resource "aws_route_table_association" "db_rt_C" {
-  subnet_id      = module.project03_private_subnet_db_c.subnet_id
-  route_table_id = aws_route_table.project03_private_rt_c.id
-}
 

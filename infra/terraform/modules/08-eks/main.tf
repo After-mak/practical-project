@@ -48,6 +48,28 @@ module "eks" {
         role = "worker"
       }
     }
+
+    eks-db-node = {
+      name                   = "eks-db-node"
+      instance_types         = ["t3.medium"]
+      ami_type               = var.ami_type
+      min_size               = 1
+      max_size               = 2
+      desired_size           = 1
+      vpc_security_group_ids = var.node_security_group_ids
+
+      labels = {
+        role = "db"
+      }
+      
+      taints = {
+        dedicated = {
+          key    = "dedicated"
+          value  = "db"
+          effect = "NO_SCHEDULE"
+        }
+      }
+    }
   }
 
   access_entries = {
