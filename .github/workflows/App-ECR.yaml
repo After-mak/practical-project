@@ -1,0 +1,48 @@
+name: Build and Push to Amazon ECR & Update GitOps Tag
+
+on:
+  push:
+    branches: [ "main", "dev" ] # main,dev  브랜치에 소스코드가 push되면 작동
+    paths:
+      - 'app-test/**'
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. 소스코드 체크아웃
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    # 2. AWS 자격 증명 설정 (우리가 등록한 admin-bot의 키를 사용)
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-northeast-2 # 서울 리전
+
+    # 3. Amazon ECR 로그인
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
+    - name: Build, tag, and push image to Amazon ECR
+      working-directory: ./app-test
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름
+      run: |
+        # 소수점 태그(1.0)
+        IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
+        echo "빌드할 이미지 태그: $IMAGE_TAG"
+
+        # ECR 주소와 태그를 매핑하여 빌드
+        docker build \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+   
+        # AWS ECR로 이미지 푸시
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
