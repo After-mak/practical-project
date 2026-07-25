@@ -24,9 +24,9 @@ module "eks" {
       name                   = "eks-management-node"
       instance_types         = var.instance_types
       ami_type               = var.ami_type
-      min_size               = 2
-      max_size               = 3
-      desired_size           = 2
+      min_size               = 1
+      max_size               = 2
+      desired_size           = 1
       vpc_security_group_ids = var.node_security_group_ids
 
       labels = {
@@ -61,7 +61,7 @@ module "eks" {
       labels = {
         role = "db"
       }
-      
+
       taints = {
         dedicated = {
           key    = "dedicated"

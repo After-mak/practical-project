@@ -176,6 +176,31 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+# ----------------------------------------------------------------
+# CNPG(CloudNativePG) Database 클러스터 배포 (GitOps 연동)
+# - mak-argocd-deploy 저장소의 cnpg-db 폴더(차트)를 읽어와서
+#   EKS 내부에 DB 인스턴스와 백업 설정을 자동으로 띄웁니다.
+# ----------------------------------------------------------------
+resource "kubectl_manifest" "cnpg_db" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-db
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/cnpg-db
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
 YAML
 }
 
