@@ -4,6 +4,18 @@ variable "grafana_admin_password" {
   sensitive   = true
 }
 
+variable "jwt_private_key" {
+  description = "jwt_private_key"
+  type      = string
+  sensitive = true
+}
+
+variable "jwt_public_key" {
+  description = "jwt_public_key"
+  type      = string
+  sensitive = true
+}
+
 variable "aws_profile" { type = string }
 variable "domain_name" {
   description = "The domain name for the environment"

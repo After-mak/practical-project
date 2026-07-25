@@ -1,2 +1,18 @@
 # aws 공유 계정 접근
 aws_profile    = "admin-자기이름"
+
+# app에 쓰일 jwt_key 
+
+jwt_private_key = <<-EOT
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAtVnzgcTKn6pHNsika6xDdPp3M8OugJ6R/XHuRnKJ4QYp776B
+... (개인키 내용) ...
+-----END RSA PRIVATE KEY-----
+EOT
+
+jwt_public_key = <<-EOT
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtVnzgcTKn6pHNsika6xD
+... (공개키 내용) ...
+-----END PUBLIC KEY-----
+EOT
