@@ -1,4 +1,7 @@
 import os
+import json
+import time
+import asyncio
 import logging
 import requests
 from typing import Dict, Any, Optional
@@ -8,21 +11,32 @@ logger = logging.getLogger(__name__)
 # 환경변수로부터 모킹 모드 여부 확인
 MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "true").lower() == "true"
 
-class KrrClient:
-    def __init__(self, krr_url: str = ""):
-        self.krr_url = krr_url.rstrip("/")
+# KRR 결과 TTL 캐시 (Key: "namespace/deployment", Value: (result, cached_at))
+# 동일 네임스페이스를 짧은 시간 안에 반복 호출할 때 KRR CLI 중복 실행 방지
+_krr_cache: Dict[str, tuple] = {}
+KRR_CACHE_TTL_SECONDS = 300  # 5분 캐시 유지
 
-    def get_recommendation(self, deployment_name: str, namespace: str) -> dict:
+class KrrClient:
+    """
+    Robusta KRR(Kubernetes Resource Recommender) CLI를 asyncio subprocess로 비동기 실행하여
+    프로메테우스 메트릭 기반 실시간 리소스 추천값을 조회하는 클라이언트입니다.
+
+    - 비동기 실행: asyncio.create_subprocess_exec() 사용으로 이벤트 루프 블로킹 없음
+    - TTL 캐시: 5분간 동일 네임스페이스 결과를 재사용하여 불필요한 KRR 재실행 방지
+    """
+    def __init__(self, prometheus_url: str = ""):
+        self.prometheus_url = prometheus_url.rstrip("/")
+
+    async def get_recommendation(self, deployment_name: str, namespace: str) -> Optional[dict]:
         """
-        KRR 추천 엔진으로부터 현재 리소스 설정과 추천 리소스 설정을 가져옵니다.
+        KRR CLI를 비동기로 실행하여 현재 리소스 설정과 추천 리소스 설정을 가져옵니다.
         """
         if MOCK_INTEGRATION:
             logger.info(f"[KrrClient] Mock Mode - Generating mock data for {deployment_name} in {namespace}")
-            # 테스트 시나리오별 모킹 데이터 분기 (sample-fastapi 브랜치 시나리오 호환)
             if deployment_name == "oom-failed-api":
                 return {
                     "current": {"cpu": "1000m", "memory": "2Gi"},
-                    "krr_recommended": {"cpu": "250m", "memory": "512Mi"} # 메모리 과도 감축 제안 시나리오
+                    "krr_recommended": {"cpu": "250m", "memory": "512Mi"}
                 }
             elif deployment_name == "traffic-spike-api":
                 return {
@@ -39,29 +53,117 @@ class KrrClient:
                     "current": {"cpu": "1000m", "memory": "2Gi"},
                     "krr_recommended": {"cpu": "200m", "memory": "512Mi"}
                 }
-            else: # 일반 정상 최적화 케이스 (payment-api 등)
+            else:
                 return {
                     "current": {"cpu": "1000m", "memory": "2Gi"},
                     "krr_recommended": {"cpu": "300m", "memory": "800Mi"}
                 }
-        
-        # 실제 KRR REST API / Exporter 호출 진행
-        logger.info(f"[KrrClient] Real API Call -> {self.krr_url}/api/v1/recommendations/{namespace}/{deployment_name}")
+
+        # TTL 캐시 확인 — 5분 이내 동일 네임스페이스 스캔 결과 재사용
+        cache_key = f"{namespace}/{deployment_name}"
+        now = time.monotonic()
+        if cache_key in _krr_cache:
+            cached_result, cached_at = _krr_cache[cache_key]
+            if now - cached_at < KRR_CACHE_TTL_SECONDS:
+                logger.info(f"[KrrClient] Cache hit ({int(now - cached_at)}s ago): {cache_key}")
+                return cached_result
+
+        # KRR CLI를 비동기 subprocess로 실행 (이벤트 루프 블로킹 없음)
+        logger.info(f"[KrrClient] KRR CLI 비동기 실행 중: {deployment_name} (namespace: {namespace})")
         try:
-            url = f"{self.krr_url}/api/v1/recommendations/{namespace}/{deployment_name}"
-            resp = requests.get(url, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                return {
-                    "current": data.get("current", {"cpu": "1000m", "memory": "2Gi"}),
-                    "krr_recommended": data.get("krr_recommended", {"cpu": "500m", "memory": "1Gi"})
-                }
-            else:
-                logger.warning(f"[KrrClient] KRR API status {resp.status_code}, returning None")
+            proc = await asyncio.create_subprocess_exec(
+                "krr", "simple",
+                "--prometheus-url", self.prometheus_url,
+                "-n", namespace,
+                "--format", "json",
+                "--quiet",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()  # 프로세스 정리
+                logger.error("[KrrClient] KRR CLI 실행 타임아웃 (120초 초과)")
+                return None
+
+            if proc.returncode != 0:
+                logger.error(f"[KrrClient] KRR CLI 실행 실패 (exit code {proc.returncode}): {stderr.decode()[:500]}")
+                return None
+
+            data = json.loads(stdout.decode())
+            result = self._parse_krr_output(data, deployment_name, namespace)
+
+            # 성공 시 캐시 저장
+            if result:
+                _krr_cache[cache_key] = (result, now)
+                logger.info(f"[KrrClient] 결과 캐시 저장: {cache_key} (TTL: {KRR_CACHE_TTL_SECONDS}s)")
+
+            return result
+
+        except FileNotFoundError:
+            logger.error("[KrrClient] 'krr' 명령어를 찾을 수 없습니다. robusta-krr 패키지 설치 확인 필요.")
+        except json.JSONDecodeError as e:
+            logger.error(f"[KrrClient] KRR JSON 파싱 실패: {e}")
         except Exception as e:
-            logger.error(f"[KrrClient] Error calling KRR API: {e}")
+            logger.error(f"[KrrClient] KRR 실행 중 예외: {e}")
 
         return None
+
+    def _parse_krr_output(self, data, deployment_name: str, namespace: str) -> Optional[dict]:
+        """KRR JSON 출력에서 특정 deployment의 추천값을 추출합니다."""
+        scans = data if isinstance(data, list) else data.get("scans", [])
+
+        for scan in scans:
+            obj = scan.get("object", {})
+            if obj.get("name") == deployment_name and obj.get("namespace") == namespace:
+                recommended = scan.get("recommended", {})
+                current_alloc = obj.get("allocations", {})
+
+                rec_requests = recommended.get("requests", {})
+                curr_requests = current_alloc.get("requests", {})
+
+                return {
+                    "current": {
+                        "cpu": self._format_cpu(curr_requests.get("cpu")),
+                        "memory": self._format_memory(curr_requests.get("memory"))
+                    },
+                    "krr_recommended": {
+                        "cpu": self._format_cpu(rec_requests.get("cpu")),
+                        "memory": self._format_memory(rec_requests.get("memory"))
+                    }
+                }
+
+        logger.warning(f"[KrrClient] KRR 결과에서 '{deployment_name}' (ns: {namespace})을 찾지 못했습니다.")
+        return None
+
+    @staticmethod
+    def _format_cpu(val) -> str:
+        """KRR CPU 값(코어 단위 float 또는 dict)을 K8s 형식 문자열로 변환합니다."""
+        if isinstance(val, dict):
+            val = val.get("value")
+        if val is None:
+            return "500m"
+        val = float(val)
+        if val < 1.0:
+            return f"{int(round(val * 1000))}m"
+        return str(round(val, 2))
+
+    @staticmethod
+    def _format_memory(val) -> str:
+        """KRR Memory 값(바이트 단위 또는 dict)을 K8s 형식 문자열로 변환합니다."""
+        if isinstance(val, dict):
+            val = val.get("value")
+        if val is None:
+            return "512Mi"
+        val = float(val)
+        mib = val / (1024.0 * 1024.0)
+        if mib >= 1024.0 and mib % 1024.0 == 0:
+            return f"{int(mib / 1024.0)}Gi"
+        return f"{int(round(mib))}Mi"
+
 
 class PrometheusClient:
     def __init__(self, prometheus_url: str = ""):
@@ -244,7 +346,7 @@ class TelegramClient:
         payload = {
             "chat_id": self.chat_id,
             "text": message_text,
-            "parse_mode": "Markdown"
+            "parse_mode": "HTML"
         }
 
         # PASS 상태인 경우 운영자 승인/거부 인라인 키보드 버튼 첨부 (워크로드 컨텍스트 포함)

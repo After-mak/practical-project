@@ -15,7 +15,6 @@ env:
   mockIntegration: "false"
   prometheusUrl: "http://prometheus-stack-kube-prom-prometheus.prometheus.svc.cluster.local:9090"
   chronosUrl: "http://chronos-model.monitoring.svc.cluster.local:8000"
-  krrUrl: "http://krr.finops.svc.cluster.local:8080"
   telegramBotToken: "8818476894:AAEEIiJvfmTBK5zNpF0_sv12DZmwz17k6kc"
   telegramChatId: "8753092843"
   autoSendTelegram: "true"
@@ -28,8 +27,8 @@ cronjob:
 
 resources:
   limits:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 500m
+    memory: 1Gi
   requests:
     cpu: 100m
-    memory: 128Mi
+    memory: 256Mi

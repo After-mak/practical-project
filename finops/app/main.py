@@ -17,15 +17,14 @@ app = FastAPI(
 )
 
 # API 엔드포인트 URL 및 텔레그램 설정 (환경변수 참조)
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus.monitoring.svc.cluster.local:9090")
+PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus-stack-kube-prom-prometheus.prometheus.svc.cluster.local:9090")
 CHRONOS_URL = os.getenv("CHRONOS_URL", "http://chronos-model.monitoring.svc.cluster.local:8000")
-KRR_URL = os.getenv("KRR_URL", "http://krr.monitoring.svc.cluster.local:8080")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# 클라이언트 인스턴스화
-krr_client = KrrClient(KRR_URL)
+# 클라이언트 인스턴스화 (KRR은 별도 서비스가 아닌 내부 CLI로 실행되므로 prometheus_url을 전달)
+krr_client = KrrClient(PROMETHEUS_URL)
 prom_client = PrometheusClient(PROMETHEUS_URL)
 chronos_client = ChronosClient(CHRONOS_URL)
 telegram_client = TelegramClient(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
@@ -47,7 +46,7 @@ async def analyze_workload(request: AnalysisRequest):
     
     try:
         # 1. KRR 추천 데이터 및 Prometheus 기반 초기 사용량 수집
-        krr_data = krr_client.get_recommendation(request.deployment_name, request.namespace)
+        krr_data = await krr_client.get_recommendation(request.deployment_name, request.namespace)
         if not krr_data:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
