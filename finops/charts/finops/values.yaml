@@ -1,23 +1,23 @@
 replicaCount: 1
 
 image:
-  # AWS ECR 레지스트리 URI
-  repository: 372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/finops-analyzer
+  # Replace with your container registry URI where the image is pushed
+  repository: <YOUR_REGISTRY>/finops-analyzer
   pullPolicy: Always
-  tag: "v0.1.0"
+  tag: "latest"
 
 service:
   type: ClusterIP
   port: 8000
 
 env:
-  # 기본적으로 Mock 모드를 지원하며 실환경 배포 시 false로 지정
-  mockIntegration: "false"
-  prometheusUrl: "http://prometheus-stack-kube-prom-prometheus.prometheus.svc.cluster.local:9090"
-  chronosUrl: "http://chronos-model.monitoring.svc.cluster.local:8000"
-  telegramBotToken: "8818476894:AAEEIiJvfmTBK5zNpF0_sv12DZmwz17k6kc"
-  telegramChatId: "8753092843"
-  autoSendTelegram: "true"
+  # Set mock mode to false for real KRR execution
+  MOCK_INTEGRATION: "false"
+  PROMETHEUS_URL: "http://prometheus-stack-kube-prom-prometheus.prometheus.svc.cluster.local:9090"
+  CHRONOS_URL: "http://chronos-model.monitoring.svc.cluster.local:8000"
+  TELEGRAM_BOT_TOKEN: "8818476894:AAEEIiJvfmTBK5zNpF0_sv12DZmwz17k6kc"
+  TELEGRAM_CHAT_ID: "8753092843"
+  AUTO_SEND_TELEGRAM: "true"
 
 cronjob:
   enabled: true
