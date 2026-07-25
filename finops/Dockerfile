@@ -4,7 +4,12 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+# robusta-krr 설치 시 C 네이티브 컴파일이 필요하므로 빌드 도구 설치 후 제거
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc g++ && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apt-get purge -y --auto-remove gcc g++ && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY app ./app
 
