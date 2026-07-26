@@ -45,7 +45,8 @@ app = FastAPI(
 )
 
 # API 엔드포인트 URL 및 텔레그램 설정 (환경변수 참조)
-MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "true").lower() == "true"
+# MOCK_INTEGRATION 기본값은 false(실제 모드) — clients.py와 동일한 이유
+MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "false").lower() == "true"
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus-stack-kube-prom-prometheus.prometheus.svc.cluster.local:9090")
 CHRONOS_URL = os.getenv("CHRONOS_URL", "http://chronos-model.monitoring.svc.cluster.local:8000")
 

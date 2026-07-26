@@ -9,8 +9,9 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# 환경변수로부터 모킹 모드 여부 확인
-MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "true").lower() == "true"
+# 환경변수로부터 모킹 모드 여부 확인. 기본값은 false(실제 모드) — 환경변수를 깜빡 빠뜨렸을 때
+# 조용히 가짜 데이터로 동작하는 대신, krr 실행/Prometheus 연결이 실패하며 바로 드러나게 함
+MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "false").lower() == "true"
 
 # KRR 결과 TTL 캐시 (Key: namespace, Value: (전체 스캔 결과 dict, cached_at))
 # KRR CLI는 -n <namespace> 옵션으로 실행 시 네임스페이스 내 모든 워크로드를 한 번에 스캔하므로
