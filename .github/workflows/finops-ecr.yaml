@@ -53,12 +53,14 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: v0.1.${{ github.run_number }}
-        working-directory: finops
         run: |
           set -euo pipefail
 
           IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker build --pull -t "$IMAGE_URI" .
+          # Dockerfile의 COPY 경로(finops/requirements.txt, finops/app)가 저장소 루트 기준이라
+          # 빌드 컨텍스트도 루트(.)여야 함. working-directory를 finops로 두면 COPY 경로가
+          # finops/finops/... 를 찾다가 실패함(실제 CI 실행에서 확인된 문제).
+          docker build --pull -f finops/Dockerfile -t "$IMAGE_URI" .
 
           if aws ecr describe-images \
             --repository-name "$ECR_REPOSITORY" \
