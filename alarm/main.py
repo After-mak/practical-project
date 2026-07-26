@@ -28,7 +28,10 @@ TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")
 
 # FinOps(KRR) 정책 엔진 서비스 주소. infra_approve/infra_reject 콜백 처리 시
 # "실제로 얼마로 바꿀지"(최종 cpu/memory)를 조회하기 위해 호출합니다.
-FINOPS_URL = os.getenv("FINOPS_URL", "http://finops.finops.svc.cluster.local:8000")
+# ArgoCD Application 이름이 "finops-analyzer"라 Helm release 이름도 그걸 따르고
+# (finops.fullname 템플릿이 Release.Name을 그대로 씀), 그 결과 Service 이름도
+# "finops-analyzer"가 됩니다 (단순히 "finops"가 아님).
+FINOPS_URL = os.getenv("FINOPS_URL", "http://finops-analyzer.finops.svc.cluster.local:8000")
 
 GRAFANA_URL = "http://tuby.shop:3000"
 
