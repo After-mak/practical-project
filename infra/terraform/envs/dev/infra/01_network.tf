@@ -46,6 +46,7 @@ module "project03_private_subnet_cluster_a" {
   az            = var.azs[0]
   map_public_ip = false # 외부에서 IP로 직접 접근할 수 없도록 막음
   name          = "project03-private-subnet-cluster-a"
+  karpenter_subnet = "project03-eks"
 }
 # Private Subnet (AZ-a)
 # Rds가 위치될 subnet입니다
@@ -67,6 +68,7 @@ module "project03_private_subnet_cluster_c" {
   az            = var.azs[1]
   map_public_ip = false # 외부에서 IP로 직접 접근할 수 없도록 막음
   name          = "project03-private-subnet-cluster-c"
+  karpenter_subnet = "project03-eks"
 }
 
 # Private Subnet (AZ-c)

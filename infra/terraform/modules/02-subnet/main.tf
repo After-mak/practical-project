@@ -7,5 +7,6 @@ resource "aws_subnet" "this" {
   tags = {
     Name                              = var.name
     "kubernetes.io/role/elb"          = var.cluster_role_subnet
+    "kubernetes.io/role/karpenter"    = var.cluster_name
   }
 }
