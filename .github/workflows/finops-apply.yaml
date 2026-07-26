@@ -3,12 +3,15 @@ name: FinOps Apply Resource Recommendation
 # alarm 서비스가 Telegram의 "✅ 승인 (Apply)" 버튼 콜백(infra_approve)을 받으면
 # FinOps 정책 엔진(finops)에서 조회한 최종 cpu/memory 권장값을 넘겨 이 워크플로우를 호출합니다.
 #
-# ⚠️ 전제: 이 워크플로우가 실행되는 저장소(기본값 After-mak/mak-argocd-deploy)에
-#         charts/<deployment_name>/values.yaml 이 존재하고, 그 안에 resources.requests.cpu /
-#         resources.requests.memory 키가 있어야 합니다 (finops 차트 자신의 values.yaml과 동일한 구조).
+# ⚠️ 전제: 이 워크플로우가 실행되는 저장소(기본값 After-mak/mak-argocd-deploy)의 차트마다
+#         resources.requests가 저장되는 위치가 다릅니다(finops/mak-app은 최상위 resources,
+#         sample-fastapi/sample-worker는 charts/sample-fastapi/values.yaml 안에 컴포넌트별로
+#         중첩되어 있음). 아래 "차트별 values.yaml 경로 매핑" 스텝의 case 문에 새로운 워크로드가
+#         추가될 때마다 매핑을 추가해야 합니다. 매핑에 없는 이름은 finops/mak-app과 같은 기본
+#         구조(최상위 resources.requests)로 시도하고, 그 경로가 실제로 없으면 조용히 아무 효과 없는
+#         변경을 "성공"으로 보고하는 대신 명확히 실패합니다.
 #         이 파일은 rollback.yaml / rollback-custom.yaml 처럼 GitOps 저장소(mak-argocd-deploy)에도
-#         복사되어 있어야 실제로 동작합니다. 대상 차트 구조가 다르면 "Update resources.requests" 스텝의
-#         yq 경로를 실제 구조에 맞게 수정하세요.
+#         복사되어 있어야 실제로 동작합니다.
 on:
   workflow_dispatch:
     inputs:
@@ -16,7 +19,7 @@ on:
         description: '대상 쿠버네티스 네임스페이스'
         required: true
       deployment_name:
-        description: '대상 Deployment 이름 (charts/<deployment_name>/values.yaml 로 매핑됨)'
+        description: '대상 Deployment 이름'
         required: true
       cpu:
         description: '적용할 CPU request (예: 250m)'
@@ -32,26 +35,62 @@ jobs:
       - name: Checkout GitOps Repository
         uses: actions/checkout@v4
 
+      - name: 차트별 values.yaml 경로 매핑
+        id: map
+        env:
+          DEPLOYMENT_NAME: ${{ github.event.inputs.deployment_name }}
+        run: |
+          set -euo pipefail
+
+          # deployment_name -> (values.yaml 위치, 그 안에서 resources가 있는 yq 경로)
+          case "$DEPLOYMENT_NAME" in
+            sample-fastapi)
+              VALUES_FILE="charts/sample-fastapi/values.yaml"
+              RESOURCES_PATH=".fastapi.resources.requests"
+              ;;
+            sample-worker)
+              VALUES_FILE="charts/sample-fastapi/values.yaml"
+              RESOURCES_PATH=".worker.resources.requests"
+              ;;
+            *)
+              # 매핑에 없는 이름은 finops/mak-app처럼 최상위 resources.requests 구조로 가정
+              VALUES_FILE="charts/${DEPLOYMENT_NAME}/values.yaml"
+              RESOURCES_PATH=".resources.requests"
+              ;;
+          esac
+
+          echo "values_file=${VALUES_FILE}" >> "$GITHUB_OUTPUT"
+          echo "resources_path=${RESOURCES_PATH}" >> "$GITHUB_OUTPUT"
+
       - name: Update resources.requests in chart values.yaml
         env:
           DEPLOYMENT_NAME: ${{ github.event.inputs.deployment_name }}
           NAMESPACE: ${{ github.event.inputs.namespace }}
           CPU: ${{ github.event.inputs.cpu }}
           MEMORY: ${{ github.event.inputs.memory }}
+          VALUES_FILE: ${{ steps.map.outputs.values_file }}
+          RESOURCES_PATH: ${{ steps.map.outputs.resources_path }}
         run: |
           set -euo pipefail
 
-          VALUES_FILE="charts/${DEPLOYMENT_NAME}/values.yaml"
           if [ ! -f "$VALUES_FILE" ]; then
-            echo "::error::${VALUES_FILE} 를 찾을 수 없습니다. FinOps가 리소스를 조정하려는 Deployment는"
-            echo "::error::charts/<deployment_name>/values.yaml 구조를 따라야 합니다. 실제 차트 경로가 다르면"
-            echo "::error::이 워크플로우의 VALUES_FILE 계산 로직을 대상 저장소 구조에 맞게 수정하세요."
+            echo "::error::${VALUES_FILE} 를 찾을 수 없습니다. '${DEPLOYMENT_NAME}'에 대한 차트 경로 매핑이"
+            echo "::error::잘못되었거나, 이 워크플로우 상단의 case 문에 아직 이 워크로드가 등록되지 않았습니다."
             exit 1
           fi
 
-          yq -i ".resources.requests.cpu = strenv(CPU) | .resources.requests.memory = strenv(MEMORY)" "$VALUES_FILE"
+          # 매핑된 경로에 resources.requests.cpu가 실제로 존재하는지 먼저 확인합니다.
+          # 없으면 엉뚱한 곳에 새 키를 만들어 "성공"으로 조용히 끝나버리는(실제로는 배포에
+          # 아무 영향도 주지 못하는) 상황을 막기 위함입니다.
+          if [ "$(yq "${RESOURCES_PATH}.cpu // \"MISSING\"" "$VALUES_FILE")" = "MISSING" ]; then
+            echo "::error::${VALUES_FILE}의 ${RESOURCES_PATH}.cpu 경로가 없습니다."
+            echo "::error::'${DEPLOYMENT_NAME}'의 실제 차트 구조에 맞게 이 워크플로우의 매핑을 수정한 뒤 다시 실행하세요."
+            exit 1
+          fi
 
-          echo "=== [${NAMESPACE}/${DEPLOYMENT_NAME}] 수정된 ${VALUES_FILE} ==="
+          yq -i "${RESOURCES_PATH}.cpu = strenv(CPU) | ${RESOURCES_PATH}.memory = strenv(MEMORY)" "$VALUES_FILE"
+
+          echo "=== [${NAMESPACE}/${DEPLOYMENT_NAME}] 수정된 ${VALUES_FILE} (${RESOURCES_PATH}) ==="
           cat "$VALUES_FILE"
 
       - name: Commit and Push
@@ -60,13 +99,14 @@ jobs:
           NAMESPACE: ${{ github.event.inputs.namespace }}
           CPU: ${{ github.event.inputs.cpu }}
           MEMORY: ${{ github.event.inputs.memory }}
+          VALUES_FILE: ${{ steps.map.outputs.values_file }}
         run: |
           set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add "charts/${DEPLOYMENT_NAME}/values.yaml"
+          git add "$VALUES_FILE"
 
           if git diff --cached --quiet; then
             echo "변경 사항 없음 (이미 반영된 값과 동일), 푸시를 생략합니다."
