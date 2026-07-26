@@ -85,13 +85,6 @@ spec:
     repoURL: https://github.com/After-mak/mak-argocd-deploy.git
     targetRevision: main
     path: charts/mak-app
-    helm:
-      values: |
-        secrets:
-          jwtRS256.key: |
-            ${indent(12, var.jwt_private_key)}
-          jwtRS256.key.pub: |
-            ${indent(12, var.jwt_public_key)}
   destination:
     server: https://kubernetes.default.svc
     namespace: default
@@ -183,6 +176,9 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+YAML
+}
+
 # ----------------------------------------------------------------
 # CNPG(CloudNativePG) Database 클러스터 배포 (GitOps 연동)
 # - mak-argocd-deploy 저장소의 cnpg-db 폴더(차트)를 읽어와서

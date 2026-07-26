@@ -1,7 +1,7 @@
 variable "aws_profile" {
   description = "AWS CLI 프로필 이름"
   type        = string
-  default     = "default"
+  default     = "admin-mingi"
 }
 variable "domain_name" {
   description = "서비스 도메인 이름"

@@ -22,10 +22,6 @@ module "project03_eks" {
 
   admin_users = var.eks_admin_users
 
-  node_labels = {
-    "karpenter.sh/controller" = "true"
-  }
-
 }
 
 # eks 접속용 인증 토큰 가져오기
