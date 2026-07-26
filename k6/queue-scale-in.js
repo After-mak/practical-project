@@ -6,6 +6,7 @@ import { BASE_URL, DEFAULT_THRESHOLDS, durationEnv } from './lib/config.js';
 
 // 매 조회 시점의 Queue Length를 기록하며 Gauge의 마지막 값으로 종료 조건을 판정합니다.
 const queueLength = new Gauge('observed_queue_length');
+const processingLength = new Gauge('observed_processing_length');
 
 export const options = {
   // 상태 조회 자체가 부하가 되지 않도록 한 명의 VU만 사용합니다.
@@ -15,6 +16,7 @@ export const options = {
     ...DEFAULT_THRESHOLDS,
     // 테스트 종료 시 마지막 Queue Length가 0이 아니면 k6가 실패 코드로 종료됩니다.
     observed_queue_length: ['value==0'],
+    observed_processing_length: ['value==0'],
   },
 };
 
@@ -25,6 +27,7 @@ export default function () {
   if (valid) {
     // HTTP 응답이 정상일 때만 Queue Length를 Gauge에 기록합니다.
     queueLength.add(response.json('queue_length'));
+    processingLength.add(response.json('processing_length'));
   }
   sleep(2);
 }

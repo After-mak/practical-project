@@ -9,12 +9,19 @@ x-api-environment: &api-environment
   REDIS_SOCKET_TIMEOUT: 5
   REDIS_HEALTH_CHECK_INTERVAL: 30
   REDIS_RETRY_ATTEMPTS: 2
+  QUEUE_MAX_RETRIES: 3
+  QUEUE_VISIBILITY_TIMEOUT_SECONDS: 60
+  QUEUE_RECOVERY_INTERVAL_SECONDS: 10
+  QUEUE_COMPLETED_TTL_SECONDS: 86400
+  WORKER_JOB_TIMEOUT_SECONDS: 30
 
 x-api-service: &api-service
   build:
     context: ./apps/sample-fastapi
   image: sample-fastapi:v0.4.0-local
-  environment: *api-environment
+  environment:
+    <<: *api-environment
+    LOAD_TEST_TOKEN: ${LOAD_TEST_TOKEN:?LOAD_TEST_TOKEN must be set}
   depends_on:
     redis:
       condition: service_healthy

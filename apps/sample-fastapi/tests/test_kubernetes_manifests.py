@@ -1,5 +1,6 @@
 """Prometheus 수집에 필요한 Kubernetes selector와 port 연결을 검증합니다."""
 
+import json
 from pathlib import Path
 
 import yaml
@@ -66,3 +67,85 @@ def test_prometheus_selects_sample_namespace_and_service_monitors():
     # built-in monitors and ServiceMonitors from every namespace.
     assert prometheus_spec["serviceMonitorSelector"] == {}
     assert prometheus_spec["serviceMonitorNamespaceSelector"] == {}
+
+
+def test_sample_fastapi_grafana_dashboard_has_scoped_workload_panels():
+    values = load_yaml(PROMETHEUS_VALUES)
+    dashboard_json = values["grafana"]["dashboards"]["finops-dashboards"][
+        "sample-fastapi-workload"
+    ]["json"]
+    dashboard = json.loads(dashboard_json)
+    panels = {panel["title"]: panel for panel in dashboard["panels"]}
+
+    expected_titles = {
+        "Redis Queue State",
+        "Worker Deployment Replicas",
+        "KEDA HPA Current vs Desired",
+        "Worker Queue Events",
+        "Sample Pod CPU Usage",
+        "Sample Pod Memory Working Set",
+    }
+    assert dashboard["uid"] == "sample-fastapi-workload"
+    assert set(panels) == expected_titles
+
+    expressions = [
+        target["expr"]
+        for panel in dashboard["panels"]
+        for target in panel["targets"]
+    ]
+    assert all('namespace="sample-fastapi"' in expression for expression in expressions)
+    assert any("sample_queue_length" in expression for expression in expressions)
+    assert any("sample_queue_processing_length" in expression for expression in expressions)
+    assert any("sample_queue_dead_letter_length" in expression for expression in expressions)
+    hpa_expressions = [
+        expression for expression in expressions if "horizontalpodautoscaler" in expression
+    ]
+    assert len(hpa_expressions) == 2
+    assert all(
+        'horizontalpodautoscaler="keda-hpa-sample-worker"' in expression
+        for expression in hpa_expressions
+    )
+
+
+def test_only_api_receives_load_test_token_from_secret():
+    api = load_yaml(K8S_DIR / "fastapi-deployment.yaml")
+    worker = load_yaml(K8S_DIR / "worker-deployment.yaml")
+    api_env_from = api["spec"]["template"]["spec"]["containers"][0]["envFrom"]
+    worker_env_from = worker["spec"]["template"]["spec"]["containers"][0]["envFrom"]
+
+    secret_reference = {
+        "secretRef": {
+            "name": "sample-fastapi-load-test",
+            "optional": True,
+        }
+    }
+    assert secret_reference in api_env_from
+    assert secret_reference not in worker_env_from
+
+
+def test_workload_scenarios_have_unique_selectors_and_resource_profiles():
+    documents = list(
+        yaml.safe_load_all(
+            (K8S_DIR / "workload-scenarios.yaml").read_text(encoding="utf-8")
+        )
+    )
+    deployments = {
+        document["metadata"]["labels"]["workload-type"]: document
+        for document in documents
+        if document["kind"] == "Deployment"
+    }
+
+    assert set(deployments) == {"baseline", "overallocated", "idle", "spike"}
+    for workload_type, deployment in deployments.items():
+        labels = deployment["spec"]["template"]["metadata"]["labels"]
+        assert labels["workload-type"] == workload_type
+        assert_labels_match(deployment["spec"]["selector"]["matchLabels"], labels)
+        assert "resources" in deployment["spec"]["template"]["spec"]["containers"][0]
+
+    assert (
+        deployments["overallocated"]["spec"]["template"]["spec"]["containers"][0][
+            "resources"
+        ]["requests"]
+        == {"cpu": "500m", "memory": "512Mi"}
+    )
+    assert deployments["idle"]["spec"]["replicas"] == 3

@@ -28,9 +28,19 @@ jobs:
       # 핵심: 직전 커밋(HEAD)을 취소하는 새로운 커밋 생성
       - name: Execute Git Revert
         run: |
-          echo "Executing git revert HEAD..."
+          echo "Finding last commit by github-actions[bot]..."
+
+          # -F (--fixed-strings) 옵션을 붙여서 [bot]을 일반 문자열로 처리
+          TARGET_COMMIT=$(git log -F --author="github-actions[bot]" -1 --format=%H -- charts/mak-app/values.yaml)
+          
+          if [ -z "$TARGET_COMMIT" ]; then
+            echo "Error: github-actions[bot]이 수정한 커밋을 찾을 수 없습니다."
+            exit 1
+          fi
+          
+          echo "Target commit to revert: $TARGET_COMMIT"
           # --no-edit 옵션으로 커밋 메시지 입력 창이 뜨는 것을 방지하고 자동 커밋
-          git revert --no-edit HEAD
+          git revert --no-edit $TARGET_COMMIT
 
       - name: Push Reverted Commit 
         run: |

@@ -32,6 +32,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: sample-fastapi-config
+            - secretRef:
+                name: sample-fastapi-load-test
+                optional: true
           resources:
             requests:
               cpu: 100m

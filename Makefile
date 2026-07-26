@@ -71,7 +71,7 @@ validate:
 plan:
 	@echo "▶ AWS 인프라 변경 예측(Plan) 실행 중..."
 	cd $(TF_DEV_INFRA_DIR) && terraform plan
-	cd $(TF_DEV_K8S_DIR) && terraform plan
+	cd $(TF_DEV_K8S_DIR) && -terraform plan
 
 apply:
 	@echo "▶ AWS 기초 인프라 실배포 진행 중 (수동 승인 필요)..."
