@@ -44,6 +44,15 @@ prometheus:
         memory: 1Gi
     retention: 7d
 grafana:
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
   persistence:
     enabled: true
     type: pvc

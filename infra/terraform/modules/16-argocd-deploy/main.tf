@@ -171,6 +171,36 @@ spec:
 YAML
 }
 
+resource "kubectl_manifest" "grafana_finops_dashboard" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana-finops-dashboard
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/grafana-finops-dashboard
+    helm:
+      valueFiles:
+      - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
 resource "kubectl_manifest" "finops_analyzer" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1
