@@ -44,6 +44,15 @@ prometheus:
         memory: 1Gi
     retention: 7d
 grafana:
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
   persistence:
     enabled: true
     type: pvc
@@ -55,11 +64,19 @@ grafana:
       - kubernetes.io/pvc-protection
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 100m
+      cpu: 250m
       memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  readinessProbe:
+    timeoutSeconds: 5
+    periodSeconds: 10
+    failureThreshold: 6
+  livenessProbe:
+    timeoutSeconds: 5
+    periodSeconds: 10
+    failureThreshold: 6
   adminPassword: "${grafana_admin_password}"
   dashboardProviders:
     dashboardproviders.yaml:

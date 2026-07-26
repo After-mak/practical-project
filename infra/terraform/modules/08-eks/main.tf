@@ -14,10 +14,10 @@ module "eks" {
   enable_irsa                              = true
 
   cluster_addons = {
-    coredns            = { resolve_conflicts_on_create = "OVERWRITE" }
-    kube-proxy         = { resolve_conflicts_on_create = "OVERWRITE" }
-    vpc-cni            = { resolve_conflicts_on_create = "OVERWRITE" }
-    aws-ebs-csi-driver = { most_recent = true }
+    coredns    = { resolve_conflicts_on_create = "OVERWRITE" }
+    kube-proxy = { resolve_conflicts_on_create = "OVERWRITE" }
+    vpc-cni    = { resolve_conflicts_on_create = "OVERWRITE" }
+    aws-ebs-csi-driver = { resolve_conflicts_on_create = "OVERWRITE" }
   }
 
   eks_managed_node_group_defaults = {
