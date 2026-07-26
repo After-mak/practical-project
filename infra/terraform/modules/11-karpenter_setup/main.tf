@@ -20,7 +20,24 @@ module "karpenter" {
 
   # 기본 namespace: kube-system service account: karpenter 설정
   irsa_namespace_service_accounts = ["kube-system:karpenter"]
-  
+
   # karpenter가 만들어낸 노드들이 사용할 iam_role에 prefix 안 붙이는 옵션
-  node_iam_role_use_name_prefix = false 
+  node_iam_role_use_name_prefix = false
+}
+
+resource "aws_iam_role_policy" "karpenter_list_instance_profiles" {
+  name = "karpenter-list-instance-profiles"
+  role = module.karpenter.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "AllowListInstanceProfiles"
+        Effect   = "Allow"
+        Action   = ["iam:ListInstanceProfiles"]
+        Resource = "*"
+      }
+    ]
+  })
 }

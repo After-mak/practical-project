@@ -8,15 +8,16 @@ module "eks" {
   vpc_id                         = var.vpc_id
   subnet_ids                     = var.subnet_ids
   cluster_endpoint_public_access = true
+  node_security_group_tags       = var.node_security_group_tags
 
   authentication_mode                      = "API_AND_CONFIG_MAP"
   enable_cluster_creator_admin_permissions = false
   enable_irsa                              = true
 
   cluster_addons = {
-    coredns    = { resolve_conflicts_on_create = "OVERWRITE" }
-    kube-proxy = { resolve_conflicts_on_create = "OVERWRITE" }
-    vpc-cni    = { resolve_conflicts_on_create = "OVERWRITE" }
+    coredns            = { resolve_conflicts_on_create = "OVERWRITE" }
+    kube-proxy         = { resolve_conflicts_on_create = "OVERWRITE" }
+    vpc-cni            = { resolve_conflicts_on_create = "OVERWRITE" }
     aws-ebs-csi-driver = { resolve_conflicts_on_create = "OVERWRITE" }
   }
 

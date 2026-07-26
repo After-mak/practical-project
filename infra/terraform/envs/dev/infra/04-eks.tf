@@ -13,6 +13,9 @@ module "project03_eks" {
   ]
 
   node_security_group_ids = [module.security_groups.eks_node_sg_id]
+  node_security_group_tags = {
+    "karpenter.sh/discovery" = "project03-eks"
+  }
 
   instance_types = ["t3.medium"]
   ami_type       = "AL2023_x86_64_STANDARD"

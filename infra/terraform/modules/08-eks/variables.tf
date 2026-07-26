@@ -24,6 +24,12 @@ variable "node_security_group_ids" {
   default     = []
 }
 
+variable "node_security_group_tags" {
+  description = "Tags to apply to the EKS shared node security group"
+  type        = map(string)
+  default     = {}
+}
+
 variable "instance_types" {
   description = "EC2 instance types for node group"
   type        = list(string)

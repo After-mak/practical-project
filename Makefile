@@ -20,7 +20,7 @@ CURRENT_USER := $(shell echo "$(AWS_PROF)" | sed 's/admin-//')
 export AWS_PROFILE := $(AWS_PROF)
 
 # 모든 명령어를 .PHONY에 등록하여 파일 이름 충돌 방지 (가독성을 위해 분할)
-.PHONY: help setup check init fmt validate plan apply apply-auto output destroy
+.PHONY: help setup check init fmt validate plan apply apply-auto auto-apply verify-dev output destroy
 
 
 # 기본 명령어 (명령어 없이 make만 쳤을 때 가이드 출력)
@@ -89,7 +89,13 @@ apply-auto:
 	sleep 30
 
 	@echo "▶ [3/3단계] ArgoCD Application 및 잔여 스택 전체 완공 중..."
-	cd $(TF_DEV_K8S_DIR) && terraform apply --auto-approve -parallelism=3 
+	cd $(TF_DEV_K8S_DIR) && terraform apply --auto-approve -parallelism=3
+	$(MAKE) verify-dev
+
+auto-apply: apply-auto
+
+verify-dev:
+	bash scripts/verify-dev-deployment.sh
 
 output:
 	@echo "▶ 배포된 AWS 리소스 정보 출력..."
