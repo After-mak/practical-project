@@ -19,3 +19,15 @@ variable "grafana_admin_password" {
     error_message = "Grafana admin password is fixed to admin1234 for this project environment."
   }
 }
+
+variable "jwt_private_key" {
+  description = "jwt_private_key"
+  type      = string
+  sensitive = true
+}
+
+variable "jwt_public_key" {
+  description = "jwt_public_key"
+  type      = string
+  sensitive = true
+}

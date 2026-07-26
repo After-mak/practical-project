@@ -43,6 +43,9 @@ module "argocd_deploy" {
   sample_fastapi_redis_host        = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
   sample_fastapi_redis_port        = data.terraform_remote_state.infra.outputs.redis_port
 
+  jwt_private_key                  = var.jwt_private_key
+  jwt_public_key                   = var.jwt_public_key
+
   # Create: Gateway -> cleanup guard -> Argo CD applications.
   # Destroy: Argo CD applications -> cleanup wait -> Gateway.
   depends_on = [
