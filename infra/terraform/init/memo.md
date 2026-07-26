@@ -4,3 +4,9 @@
 terraform init -upgrade
 
 ```
+
+### Error: Backend configuration changed 대처방법
+
+```bash
+[user1@mgmt infra]$ terraform init -reconfigure -backend-config="profile=admin-프로필명"
+```

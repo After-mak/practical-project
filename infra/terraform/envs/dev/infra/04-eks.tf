@@ -14,12 +14,12 @@ module "project03_eks" {
 
   node_security_group_ids = [module.security_groups.eks_node_sg_id]
 
-  instance_types = ["t3.medium"] 
+  instance_types = ["t3.medium"]
   ami_type       = "AL2023_x86_64_STANDARD"
   min_size       = 2
   max_size       = 3
   desired_size   = 2
-  admin_users = var.eks_admin_users
+  admin_users    = var.eks_admin_users
 
 }
 
