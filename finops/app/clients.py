@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import asyncio
@@ -11,10 +12,35 @@ logger = logging.getLogger(__name__)
 # 환경변수로부터 모킹 모드 여부 확인
 MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "true").lower() == "true"
 
-# KRR 결과 TTL 캐시 (Key: "namespace/deployment", Value: (result, cached_at))
-# 동일 네임스페이스를 짧은 시간 안에 반복 호출할 때 KRR CLI 중복 실행 방지
+# KRR 결과 TTL 캐시 (Key: namespace, Value: (전체 스캔 결과 dict, cached_at))
+# KRR CLI는 -n <namespace> 옵션으로 실행 시 네임스페이스 내 모든 워크로드를 한 번에 스캔하므로
+# deployment 단위가 아닌 namespace 단위로 캐시해서 반복 호출 시 KRR 재실행을 피합니다.
 _krr_cache: Dict[str, tuple] = {}
 KRR_CACHE_TTL_SECONDS = 300  # 5분 캐시 유지
+
+# Mock 모드에서 시나리오 테스트용으로 제공하는 고정 워크로드 목록
+_MOCK_WORKLOADS: Dict[str, dict] = {
+    "oom-failed-api": {
+        "current": {"cpu": "1000m", "memory": "2Gi"},
+        "krr_recommended": {"cpu": "250m", "memory": "512Mi"}
+    },
+    "traffic-spike-api": {
+        "current": {"cpu": "1000m", "memory": "2Gi"},
+        "krr_recommended": {"cpu": "250m", "memory": "700Mi"}
+    },
+    "unstable-api": {
+        "current": {"cpu": "1000m", "memory": "1.5Gi"},
+        "krr_recommended": {"cpu": "300m", "memory": "500Mi"}
+    },
+    "stable-optimized-api": {
+        "current": {"cpu": "1000m", "memory": "2Gi"},
+        "krr_recommended": {"cpu": "200m", "memory": "512Mi"}
+    },
+}
+_MOCK_DEFAULT = {
+    "current": {"cpu": "1000m", "memory": "2Gi"},
+    "krr_recommended": {"cpu": "300m", "memory": "800Mi"}
+}
 
 class KrrClient:
     """
@@ -22,60 +48,57 @@ class KrrClient:
     프로메테우스 메트릭 기반 실시간 리소스 추천값을 조회하는 클라이언트입니다.
 
     - 비동기 실행: asyncio.create_subprocess_exec() 사용으로 이벤트 루프 블로킹 없음
-    - TTL 캐시: 5분간 동일 네임스페이스 결과를 재사용하여 불필요한 KRR 재실행 방지
+    - TTL 캐시: 5분간 동일 네임스페이스 스캔 결과(네임스페이스 내 전체 워크로드)를 재사용하여
+      불필요한 KRR 재실행 방지. 단일 deployment 조회도 내부적으로는 네임스페이스 전체를 스캔한 뒤
+      필요한 항목만 추출하므로, 같은 네임스페이스라면 캐시가 공유됩니다.
     """
     def __init__(self, prometheus_url: str = ""):
         self.prometheus_url = prometheus_url.rstrip("/")
 
     async def get_recommendation(self, deployment_name: str, namespace: str) -> Optional[dict]:
         """
-        KRR CLI를 비동기로 실행하여 현재 리소스 설정과 추천 리소스 설정을 가져옵니다.
+        지정된 namespace를 스캔하여 특정 deployment의 현재/추천 리소스 설정을 가져옵니다.
         """
         if MOCK_INTEGRATION:
             logger.info(f"[KrrClient] Mock Mode - Generating mock data for {deployment_name} in {namespace}")
-            if deployment_name == "oom-failed-api":
-                return {
-                    "current": {"cpu": "1000m", "memory": "2Gi"},
-                    "krr_recommended": {"cpu": "250m", "memory": "512Mi"}
-                }
-            elif deployment_name == "traffic-spike-api":
-                return {
-                    "current": {"cpu": "1000m", "memory": "2Gi"},
-                    "krr_recommended": {"cpu": "250m", "memory": "700Mi"}
-                }
-            elif deployment_name == "unstable-api":
-                return {
-                    "current": {"cpu": "1000m", "memory": "1.5Gi"},
-                    "krr_recommended": {"cpu": "300m", "memory": "500Mi"}
-                }
-            elif deployment_name == "stable-optimized-api":
-                return {
-                    "current": {"cpu": "1000m", "memory": "2Gi"},
-                    "krr_recommended": {"cpu": "200m", "memory": "512Mi"}
-                }
-            else:
-                return {
-                    "current": {"cpu": "1000m", "memory": "2Gi"},
-                    "krr_recommended": {"cpu": "300m", "memory": "800Mi"}
-                }
+            return _MOCK_WORKLOADS.get(deployment_name, _MOCK_DEFAULT)
 
-        # TTL 캐시 확인 — 5분 이내 동일 네임스페이스 스캔 결과 재사용
-        cache_key = f"{namespace}/{deployment_name}"
+        namespace_scan = await self._scan_namespace(namespace)
+        if namespace_scan is None:
+            return None
+        result = namespace_scan.get(deployment_name)
+        if result is None:
+            logger.warning(f"[KrrClient] KRR 결과에서 '{deployment_name}' (ns: {namespace})을 찾지 못했습니다.")
+        return result
+
+    async def get_namespace_recommendations(self, namespace: str) -> Dict[str, dict]:
+        """
+        지정된 namespace 내 모든 워크로드의 현재/추천 리소스 설정을 한 번에 가져옵니다.
+        (CronJob의 네임스페이스 전수 분석 및 /analyze/namespace 엔드포인트에서 사용)
+        """
+        if MOCK_INTEGRATION:
+            logger.info(f"[KrrClient] Mock Mode - Generating namespace-wide mock data for {namespace}")
+            return dict(_MOCK_WORKLOADS)
+
+        namespace_scan = await self._scan_namespace(namespace)
+        return namespace_scan or {}
+
+    async def _scan_namespace(self, namespace: str) -> Optional[Dict[str, dict]]:
+        """KRR CLI를 비동기로 1회 실행해 namespace 내 모든 워크로드의 추천값을 조회하고 캐시합니다."""
         now = time.monotonic()
-        if cache_key in _krr_cache:
-            cached_result, cached_at = _krr_cache[cache_key]
+        if namespace in _krr_cache:
+            cached_result, cached_at = _krr_cache[namespace]
             if now - cached_at < KRR_CACHE_TTL_SECONDS:
-                logger.info(f"[KrrClient] Cache hit ({int(now - cached_at)}s ago): {cache_key}")
+                logger.info(f"[KrrClient] Cache hit ({int(now - cached_at)}s ago): namespace={namespace}")
                 return cached_result
 
-        # KRR CLI를 비동기 subprocess로 실행 (이벤트 루프 블로킹 없음)
-        logger.info(f"[KrrClient] KRR CLI 비동기 실행 중: {deployment_name} (namespace: {namespace})")
+        logger.info(f"[KrrClient] KRR CLI 비동기 실행 중 (namespace: {namespace})")
         try:
             proc = await asyncio.create_subprocess_exec(
                 "krr", "simple",
                 "--prometheus-url", self.prometheus_url,
                 "-n", namespace,
-                "--format", "json",
+                "--formatter", "json",  # KRR v1.x부터 --format이 아닌 --formatter (구 옵션명은 CLI 에러로 실패함)
                 "--quiet",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -94,12 +117,11 @@ class KrrClient:
                 return None
 
             data = json.loads(stdout.decode())
-            result = self._parse_krr_output(data, deployment_name, namespace)
+            result = self._parse_krr_output(data, namespace)
 
-            # 성공 시 캐시 저장
-            if result:
-                _krr_cache[cache_key] = (result, now)
-                logger.info(f"[KrrClient] 결과 캐시 저장: {cache_key} (TTL: {KRR_CACHE_TTL_SECONDS}s)")
+            # 성공 시 캐시 저장 (빈 결과라도 재스캔 방지를 위해 캐시)
+            _krr_cache[namespace] = (result, now)
+            logger.info(f"[KrrClient] 결과 캐시 저장: namespace={namespace} ({len(result)}개 워크로드, TTL: {KRR_CACHE_TTL_SECONDS}s)")
 
             return result
 
@@ -112,62 +134,75 @@ class KrrClient:
 
         return None
 
-    def _parse_krr_output(self, data, deployment_name: str, namespace: str) -> Optional[dict]:
-        """KRR JSON 출력에서 특정 deployment의 추천값을 추출합니다."""
+    def _parse_krr_output(self, data, namespace: str) -> Dict[str, dict]:
+        """KRR JSON 출력 전체를 파싱하여 {deployment_name: {current, krr_recommended}} 형태로 반환합니다.
+
+        krr_recommended.cpu/memory는 KRR이 실제로 권장값을 산출하지 못했을 경우(사용 이력 데이터 부족으로
+        '?'를 반환한 경우) None이 됩니다. 이를 임의의 숫자(예: 500m)로 대체하면 마치 KRR이 그 값을 추천한
+        것처럼 보여 운영자를 오도하므로, 상위 계층(main.py/engine.py)이 '데이터 부족'임을 그대로 알 수 있도록
+        None을 그대로 전달합니다. 반면 current(현재 설정값)는 리소스에 request가 아예 설정되어 있지 않은
+        경우가 흔하므로, 그 경우엔 실제 상태 그대로 0으로 표기합니다."""
         scans = data if isinstance(data, list) else data.get("scans", [])
+        results: Dict[str, dict] = {}
 
         for scan in scans:
-            obj = scan.get("object", {})
-            if obj.get("name") == deployment_name and obj.get("namespace") == namespace:
-                recommended = scan.get("recommended", {})
-                current_alloc = obj.get("allocations", {})
+            obj = scan.get("object", {}) or {}
+            if obj.get("namespace") != namespace:
+                continue
+            name = obj.get("name")
+            if not name:
+                continue
 
-                rec_requests = recommended.get("requests", {})
-                curr_requests = current_alloc.get("requests", {})
+            recommended = scan.get("recommended", {}) or {}
+            current_alloc = obj.get("allocations", {}) or {}
 
-                return {
-                    "current": {
-                        "cpu": self._format_cpu(curr_requests.get("cpu")),
-                        "memory": self._format_memory(curr_requests.get("memory"))
-                    },
-                    "krr_recommended": {
-                        "cpu": self._format_cpu(rec_requests.get("cpu")),
-                        "memory": self._format_memory(rec_requests.get("memory"))
-                    }
+            rec_requests = recommended.get("requests", {}) or {}
+            curr_requests = current_alloc.get("requests", {}) or {}
+
+            results[name] = {
+                "current": {
+                    "cpu": self._format_resource_value(curr_requests.get("cpu"), "cpu") or "0m",
+                    "memory": self._format_resource_value(curr_requests.get("memory"), "memory") or "0Mi"
+                },
+                "krr_recommended": {
+                    "cpu": self._format_resource_value(rec_requests.get("cpu"), "cpu"),
+                    "memory": self._format_resource_value(rec_requests.get("memory"), "memory")
                 }
+            }
 
-        logger.warning(f"[KrrClient] KRR 결과에서 '{deployment_name}' (ns: {namespace})을 찾지 못했습니다.")
-        return None
-
-    @staticmethod
-    def _format_cpu(val) -> str:
-        """KRR CPU 값(코어 단위 float 또는 dict)을 K8s 형식 문자열로 변환합니다."""
-        if isinstance(val, dict):
-            val = val.get("value")
-        if val is None:
-            return "500m"
-        val = float(val)
-        if val < 1.0:
-            return f"{int(round(val * 1000))}m"
-        return str(round(val, 2))
+        return results
 
     @staticmethod
-    def _format_memory(val) -> str:
-        """KRR Memory 값(바이트 단위 또는 dict)을 K8s 형식 문자열로 변환합니다."""
+    def _format_resource_value(val, resource: str) -> Optional[str]:
+        """KRR 값(코어/바이트 단위 float, {'value': ...} dict, 또는 데이터 부족 시의 '?' 문자열)을
+        K8s 형식 문자열로 변환합니다. 값이 없거나('None') 미확정('?')이면 '알 수 없음'을 그대로
+        나타내기 위해 None을 반환합니다 — 임의의 숫자로 추측해서 채우지 않습니다."""
         if isinstance(val, dict):
             val = val.get("value")
-        if val is None:
-            return "512Mi"
+        if val is None or isinstance(val, str):
+            return None
         val = float(val)
-        mib = val / (1024.0 * 1024.0)
-        if mib >= 1024.0 and mib % 1024.0 == 0:
-            return f"{int(mib / 1024.0)}Gi"
-        return f"{int(round(mib))}Mi"
+        if resource == "cpu":
+            if val < 1.0:
+                return f"{int(round(val * 1000))}m"
+            return str(round(val, 2))
+        else:
+            mib = val / (1024.0 * 1024.0)
+            if mib >= 1024.0 and mib % 1024.0 == 0:
+                return f"{int(mib / 1024.0)}Gi"
+            return f"{int(round(mib))}Mi"
 
 
 class PrometheusClient:
     def __init__(self, prometheus_url: str = ""):
         self.prometheus_url = prometheus_url.rstrip("/")
+
+    @staticmethod
+    def _pod_regex(deployment_name: str) -> str:
+        """deployment_name을 PromQL 레이블 정규식에 안전하게 삽입하기 위한 이스케이프 처리.
+        'payment.api'처럼 정규식 특수문자가 포함된 이름이 들어와도 '.'이 '임의의 문자'로
+        해석되어 엉뚱한 파드까지 매치되거나 PromQL 파싱이 깨지는 것을 방지합니다."""
+        return "^" + re.escape(deployment_name) + "-[a-z0-9]+-[a-z0-9]+$"
 
     def get_current_resource_spec(self, deployment_name: str, namespace: str) -> Optional[dict]:
         """
@@ -180,12 +215,13 @@ class PrometheusClient:
 
         try:
             logger.info(f"[PrometheusClient] Querying current CPU/Mem resource specs from Prometheus")
+            pod_regex = self._pod_regex(deployment_name)
             # Pod의 CPU Request 수치 쿼리 (코어 단위)
-            cpu_req_query = f'avg(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{deployment_name}-[a-z0-9]+-[a-z0-9]+"}})'
+            cpu_req_query = f'avg(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{pod_regex}"}})'
             cpu_val = self._query_prometheus(cpu_req_query)
 
             # Pod의 Memory Request 수치 쿼리 (Byte 단위)
-            mem_req_query = f'avg(kube_pod_container_resource_requests{{resource="memory", namespace="{namespace}", pod=~"{deployment_name}-[a-z0-9]+-[a-z0-9]+"}})'
+            mem_req_query = f'avg(kube_pod_container_resource_requests{{resource="memory", namespace="{namespace}", pod=~"{pod_regex}"}})'
             mem_val = self._query_prometheus(mem_req_query)
 
             if cpu_val is not None and mem_val is not None:
@@ -244,20 +280,21 @@ class PrometheusClient:
         }
 
         try:
+            pod_regex = self._pod_regex(deployment_name)
             # 1. OOM Killed 이벤트 쿼리
-            oom_query = f'sum(increase(kube_pod_container_status_terminated_reason{{namespace="{namespace}", pod=~"{deployment_name}-[a-z0-9]+-[a-z0-9]+", reason="OOMKilled"}}[24h]))'
+            oom_query = f'sum(increase(kube_pod_container_status_terminated_reason{{namespace="{namespace}", pod=~"{pod_regex}", reason="OOMKilled"}}[24h]))'
             oom_res = self._query_prometheus(oom_query)
             if oom_res and oom_res > 0:
                 metrics["oom_killed"] = True
 
             # 2. Pod 재시작 횟수 쿼리
-            restart_query = f'sum(kube_pod_container_status_restarts_total{{namespace="{namespace}", pod=~"{deployment_name}-[a-z0-9]+-[a-z0-9]+"}})'
+            restart_query = f'sum(kube_pod_container_status_restarts_total{{namespace="{namespace}", pod=~"{pod_regex}"}})'
             restart_res = self._query_prometheus(restart_query)
             if restart_res is not None:
                 metrics["restart_count"] = int(restart_res)
 
             # 3. 평균 CPU 사용률 (%) 쿼리
-            cpu_query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~"{deployment_name}-[a-z0-9]+-[a-z0-9]+", container!=""}}[5m])) / sum(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{deployment_name}-[a-z0-9]+-[a-z0-9]+"}}) * 100'
+            cpu_query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~"{pod_regex}", container!=""}}[5m])) / sum(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{pod_regex}"}}) * 100'
             cpu_res = self._query_prometheus(cpu_query)
             if cpu_res is not None:
                 metrics["avg_cpu_usage_pct"] = round(float(cpu_res), 2)

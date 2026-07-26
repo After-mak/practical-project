@@ -40,3 +40,11 @@ Selector labels
 app.kubernetes.io/name: {{ include "finops.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Telegram Secret 이름: existingSecret이 지정되어 있으면 그것을, 아니면 차트가 생성하는
+기본 Secret(<fullname>-telegram)을 사용합니다.
+*/}}
+{{- define "finops.telegramSecretName" -}}
+{{- .Values.telegram.existingSecret | default (printf "%s-telegram" (include "finops.fullname" .)) }}
+{{- end }}

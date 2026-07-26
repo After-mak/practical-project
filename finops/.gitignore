@@ -12,6 +12,7 @@ __pycache__/
 # Environment Variables & Secrets
 .env
 *.env
+charts/finops/values-secret.yaml
 
 # IDE & OS
 .idea/

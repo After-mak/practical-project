@@ -26,6 +26,10 @@ GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")
 
+# FinOps(KRR) 정책 엔진 서비스 주소. infra_approve/infra_reject 콜백 처리 시
+# "실제로 얼마로 바꿀지"(최종 cpu/memory)를 조회하기 위해 호출합니다.
+FINOPS_URL = os.getenv("FINOPS_URL", "http://finops.finops.svc.cluster.local:8000")
+
 GRAFANA_URL = "http://tuby.shop:3000"
 
 # 🔍 .env 로딩 여부 터미널 점검 로그
@@ -81,6 +85,23 @@ def update_telegram_message(chat_id: int, message_id: int, new_text: str):
         requests.post(url, json=payload, timeout=5)
     except Exception as e:
         print(f"❌ Telegram 메시지 수정 에러: {e}")
+
+def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
+    """
+    FinOps(KRR) 정책 엔진에서 마지막으로 계산된 최종 권장 cpu/memory 값을 조회합니다.
+    Telegram callback_data는 64바이트 제한 때문에 namespace/deployment 이름만 담고 있어,
+    실제로 적용할 값은 여기서 별도로 가져와야 합니다.
+    """
+    try:
+        url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        print(f"⚠️ FinOps 추천값 조회 실패 -> 응답 코드: {res.status_code}, 내용: {res.text[:300]}")
+        return None
+    except Exception as e:
+        print(f"❌ FinOps 추천값 조회 에러: {e}")
+        return None
 
 def trigger_github_workflow(workflow_file: str, inputs: dict = None):
     url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/actions/workflows/{workflow_file}/dispatches"
@@ -243,5 +264,55 @@ async def telegram_callback_webhook(request: Request):
             update_telegram_message(chat_id, message_id, f"⏳ *[배포 진행 중]* `{target_tag}` 버전 최적화 배포를 시작합니다...")
             trigger_github_workflow("deploy.yaml", {"target_tag": target_tag})
             update_telegram_message(chat_id, message_id, f"🚀 *[배포 승인 완료]* `{target_tag}` 최적화 배포 파이프라인이 성공적으로 가동되었습니다!")
+
+        elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
+            # 6️⃣ FinOps(KRR) 리소스 최적화 권장안 반려: namespace:deployment_name 컨텍스트만 있으면 됨
+            rest = callback_data[len("infra_reject"):].lstrip(":")
+            target_namespace, _, target_deployment = rest.partition(":")
+            label = f"{target_namespace}/{target_deployment}" if target_deployment else "대상 워크로드"
+            update_telegram_message(
+                chat_id, message_id,
+                f"❌ *[반려 완료]* `{label}` 리소스 최적화 권장안을 반려했습니다. 현재 리소스 설정을 그대로 유지합니다."
+            )
+
+        elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
+            # 7️⃣ FinOps(KRR) 리소스 최적화 권장안 승인: 실제 cpu/memory 값은 callback_data에 담을 수
+            # 없으므로(64바이트 제한) FinOps 엔진에 다시 물어봐서 가져온 뒤 GitOps 파이프라인에 반영
+            rest = callback_data[len("infra_approve"):].lstrip(":")
+            target_namespace, _, target_deployment = rest.partition(":")
+
+            if not target_namespace or not target_deployment:
+                update_telegram_message(
+                    chat_id, message_id,
+                    "⚠️ *[적용 실패]* 콜백 데이터에 namespace/deployment 정보가 없어 어떤 워크로드에 적용할지 알 수 없습니다."
+                )
+            else:
+                label = f"{target_namespace}/{target_deployment}"
+                update_telegram_message(chat_id, message_id, f"⏳ *[적용 준비 중]* `{label}`의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다...")
+
+                recommendation = fetch_finops_recommendation(target_namespace, target_deployment)
+                if recommendation is None:
+                    update_telegram_message(
+                        chat_id, message_id,
+                        f"⚠️ *[적용 실패]* `{label}`의 최근 분석 결과를 찾을 수 없습니다 (만료되었거나 FinOps 엔진 연결 실패). "
+                        f"FinOps에서 분석을 다시 실행한 뒤 승인해주세요."
+                    )
+                else:
+                    final_cpu = recommendation["final_cpu"]
+                    final_memory = recommendation["final_memory"]
+                    update_telegram_message(
+                        chat_id, message_id,
+                        f"⏳ *[적용 진행 중]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영을 시작합니다..."
+                    )
+                    trigger_github_workflow("finops-apply.yaml", {
+                        "namespace": target_namespace,
+                        "deployment_name": target_deployment,
+                        "cpu": final_cpu,
+                        "memory": final_memory,
+                    })
+                    update_telegram_message(
+                        chat_id, message_id,
+                        f"✅ *[적용 요청 완료]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영 파이프라인이 시작되었습니다!"
+                    )
 
     return {"status": "ok"}

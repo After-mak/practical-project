@@ -30,21 +30,29 @@ spec:
               value: {{ .Values.env.prometheusUrl | quote }}
             - name: CHRONOS_URL
               value: {{ .Values.env.chronosUrl | quote }}
-            - name: TELEGRAM_BOT_TOKEN
-              value: {{ .Values.env.telegramBotToken | quote }}
-            - name: TELEGRAM_CHAT_ID
-              value: {{ .Values.env.telegramChatId | quote }}
             - name: AUTO_SEND_TELEGRAM
               value: {{ .Values.env.autoSendTelegram | quote }}
+            - name: LOG_FORMAT
+              value: {{ .Values.env.logFormat | default "text" | quote }}
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "finops.telegramSecretName" . }}
+                  key: TELEGRAM_BOT_TOKEN
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "finops.telegramSecretName" . }}
+                  key: TELEGRAM_CHAT_ID
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10

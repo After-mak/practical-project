@@ -12,34 +12,50 @@ CPU_UNIT_COST = 25.0
 MEM_UNIT_COST = 4.0
 
 def parse_cpu(cpu_str: str) -> float:
-    """CPU 문자열(예: 1000m, 1, 0.5, 500M)을 코어 수(float)로 안전하게 파싱합니다."""
+    """CPU 문자열(예: 1000m, 1, 0.5, 2e3m)을 코어 수(float)로 안전하게 파싱합니다.
+    인식할 수 없는 형식이 들어와도 예외를 던지지 않고 0.0으로 안전하게 대체합니다
+    (KRR/Prometheus가 예상치 못한 포맷을 반환해도 API가 500으로 죽지 않도록 함)."""
     if not cpu_str:
         return 0.0
     cpu_str = str(cpu_str).strip().lower()
-    if cpu_str.endswith('m'):
-        return float(cpu_str[:-1]) / 1000.0
-    return float(cpu_str)
+    try:
+        if cpu_str.endswith('m'):
+            return float(cpu_str[:-1]) / 1000.0
+        return float(cpu_str)
+    except ValueError:
+        logger.warning(f"[parse_cpu] 인식할 수 없는 CPU 포맷 '{cpu_str}', 0으로 대체합니다.")
+        return 0.0
 
 def parse_memory(mem_str: str) -> float:
-    """메모리 문자열(예: 2Gi, 2G, 512Mi, 512M, 1024K)을 MiB 단위(float)로 안전하게 파싱합니다."""
+    """메모리 문자열(예: 2Gi, 2G, 512Mi, 512M, 1024K, 2147483648, 2e9)을 MiB 단위(float)로 안전하게 파싱합니다.
+    Ki/Mi/Gi/Ti(이진 단위), K/M/G/T(십진 단위), 지수 표기, 순수 바이트 정수까지 모두 커버하며,
+    인식할 수 없는 형식은 예외 대신 0.0으로 대체해 API가 500으로 죽지 않도록 합니다."""
     if not mem_str:
         return 0.0
     mem_str = str(mem_str).strip()
-    match = re.match(r"^([0-9.]+)\s*([a-zA-Z]*)$", mem_str)
+    match = re.match(r"^([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*([a-zA-Z]*)$", mem_str)
     if not match:
-        raise ValueError(f"Invalid memory format: {mem_str}")
+        logger.warning(f"[parse_memory] 인식할 수 없는 메모리 포맷 '{mem_str}', 0으로 대체합니다.")
+        return 0.0
+
     value, unit = match.groups()
-    val = float(value)
+    try:
+        val = float(value)
+    except ValueError:
+        logger.warning(f"[parse_memory] 숫자로 변환할 수 없는 메모리 값 '{value}', 0으로 대체합니다.")
+        return 0.0
+
     unit_lower = unit.lower()
-    
-    if unit_lower in ('gi', 'g'):
+    if unit_lower in ('ti', 't'):
+        return val * 1024.0 * 1024.0
+    elif unit_lower in ('gi', 'g'):
         return val * 1024.0
     elif unit_lower in ('mi', 'm'):
         return val
     elif unit_lower in ('ki', 'k'):
         return val / 1024.0
     elif unit_lower in ('b', ''):
-        return val / (1024.0 * 1024.0)  # 기본 바이트 단위로 가정
+        return val / (1024.0 * 1024.0)  # 단위가 없으면 바이트로 가정 (Prometheus 원시 메트릭 대응)
     return val / (1024.0 * 1024.0)
 
 def format_cpu(cores: float) -> str:
@@ -65,7 +81,9 @@ class PolicyEngine:
         current_res: ResourceSpec,
         krr_res: ResourceSpec,
         prom_metrics: Optional[PrometheusMetrics],
-        chronos_forecast: Optional[ChronosForecast]
+        chronos_forecast: Optional[ChronosForecast],
+        cpu_data_insufficient: bool = False,
+        mem_data_insufficient: bool = False
     ) -> Tuple[str, str, RecommendationData, List[PolicyResult], float]:
         """
         KRR 추천 및 모니터링 메트릭을 기반으로 운영 정책을 적용하고 
@@ -232,6 +250,32 @@ class PolicyEngine:
                 description="일반적인 부하 프로필을 갖고 있거나 메트릭 미수집으로 표준 기준을 적용합니다."
             ))
 
+        # 정책 7: KRR 데이터 충분성 검사
+        # KRR은 사용 이력 데이터가 부족하면 권장값 대신 '?'(미확정)를 반환합니다. 이 경우 krr_res에는
+        # 이미 상위 계층(main.py)에서 현재값이 그대로 채워져 들어오므로(임의의 숫자로 추측하지 않음),
+        # RULE_01/02의 감축률 계산은 자연스럽게 0%로 나와 해당 리소스가 안전하게 유지됩니다.
+        # 여기서는 그 이유를 리포트에 명시적으로 알려주기 위한 안내성 경고만 추가합니다.
+        if cpu_data_insufficient or mem_data_insufficient:
+            score += 10
+            insufficient_parts = []
+            if cpu_data_insufficient:
+                insufficient_parts.append("CPU")
+            if mem_data_insufficient:
+                insufficient_parts.append("Memory")
+            policy_evals.append(PolicyResult(
+                rule_id="RULE_07",
+                name="KRR 데이터 충분성 검사",
+                status="WARN",
+                description=f"{'/'.join(insufficient_parts)} 사용 이력 데이터가 부족하여 KRR이 권장값을 산출하지 못했습니다. 해당 리소스는 임의로 추정하지 않고 현재 설정을 유지합니다."
+            ))
+        else:
+            policy_evals.append(PolicyResult(
+                rule_id="RULE_07",
+                name="KRR 데이터 충분성 검사",
+                status="PASS",
+                description="KRR이 CPU/Memory 모두 충분한 사용 이력 데이터를 기반으로 권장값을 산출했습니다."
+            ))
+
         # --- 위험도 및 전체 PASS/FAIL 판정 ---
         if score >= 70:
             risk_score = "HIGH"
@@ -254,16 +298,21 @@ class PolicyEngine:
             final=ResourceSpec(
                 cpu=format_cpu(final_cpu),
                 memory=format_memory(final_mem)
-            )
+            ),
+            krr_cpu_data_insufficient=cpu_data_insufficient,
+            krr_memory_data_insufficient=mem_data_insufficient
         )
         
-        # --- 예상 비용 절감률 계산 ---
+        # --- 예상 비용 변화율 계산 ---
+        # 부호 있는 값으로 계산합니다: 양수 = 비용 절감, 음수 = 비용 증가.
+        # Chronos-2 예측(RULE_05)으로 인해 스펙이 오히려 상향된 경우, 이를 0%로 뭉개면
+        # 운영자가 비용 증가 상황을 인지하지 못하므로 절대 max(0.0, ...)로 클램핑하지 않습니다.
         current_cost = (curr_cpu * CPU_UNIT_COST) + ((curr_mem / 1024.0) * MEM_UNIT_COST)
         final_cost = (final_cpu * CPU_UNIT_COST) + ((final_mem / 1024.0) * MEM_UNIT_COST)
-        
+
         if overall_status == "FAIL" or current_cost <= 0:
-            cost_savings_pct = 0.0
+            cost_change_pct = 0.0
         else:
-            cost_savings_pct = max(0.0, ((current_cost - final_cost) / current_cost) * 100.0)
-            
-        return risk_score, overall_status, recommendations, policy_evals, round(cost_savings_pct, 1)
+            cost_change_pct = ((current_cost - final_cost) / current_cost) * 100.0
+
+        return risk_score, overall_status, recommendations, policy_evals, round(cost_change_pct, 1)

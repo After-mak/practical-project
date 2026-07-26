@@ -6,16 +6,22 @@ metadata:
     {{- include "finops.labels" . | nindent 4 }}
 rules:
   # KRR이 워크로드 목록 및 리소스 설정값 조회에 필요한 권한
+  # (robusta-dev/krr 공식 docs/krr-in-cluster/krr-in-cluster-job.yaml 기준 권한 세트에 맞춤)
   - apiGroups: [""]
     resources:
       - pods
       - nodes
       - namespaces
+      - configmaps
+      - services
+      - replicationcontrollers
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources:
       - deployments
+      - deployments/scale
       - replicasets
+      - replicasets/scale
       - daemonsets
       - statefulsets
     verbs: ["get", "list", "watch"]
