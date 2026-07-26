@@ -16,3 +16,16 @@ output "sample_fastapi_ecr_repository_url" {
   description = "Sample FastAPI ECR Repository URL"
   value       = module.sample_fastapi_ecr.repository_url
 }
+
+module "finops_analyzer_ecr" {
+  source = "../modules/09-ecr"
+
+  repository_name      = "finops-analyzer"
+  image_tag_mutability = "IMMUTABLE"
+}
+
+output "finops_analyzer_ecr_repository_url" {
+  description = "FinOps Analyzer ECR Repository URL"
+  value       = module.finops_analyzer_ecr.repository_url
+}
+

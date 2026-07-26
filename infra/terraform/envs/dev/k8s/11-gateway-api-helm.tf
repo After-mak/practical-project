@@ -47,26 +47,28 @@ resource "helm_release" "aws_lb_controller" {
   namespace  = "kube-system"
   version    = "3.4.0"
 
-  set {
-    name  = "clusterName"
-    value = "project03-eks"
-  }
-  set {
-    name  = "serviceAccount.create"
-    value = "true"
-  }
-  set {
-    name  = "serviceAccount.name"
-    value = "aws-load-balancer-controller"
-  }
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = data.aws_iam_role.aws_lb_controller.arn
-  }
-  set {
-    name  = "controllerConfig.featureGates.ALBGatewayAPI"
-    value = "true"
-  }
+  set = [
+    {
+      name  = "clusterName"
+      value = "project03-eks"
+    },
+    {
+      name  = "serviceAccount.create"
+      value = "true"
+    },
+    {
+      name  = "serviceAccount.name"
+      value = "aws-load-balancer-controller"
+    },
+    {
+      name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+      value = data.aws_iam_role.aws_lb_controller.arn
+    },
+    {
+      name  = "controllerConfig.featureGates.ALBGatewayAPI"
+      value = "true"
+    }
+  ]
 
   depends_on = [
     kubectl_manifest.gateway_api_crds,

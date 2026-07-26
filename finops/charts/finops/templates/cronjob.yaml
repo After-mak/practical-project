@@ -1,0 +1,36 @@
+{{- if .Values.cronjob.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "finops.fullname" . }}-daily-analyzer
+  labels:
+    {{- include "finops.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronjob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "finops.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: finops-analyzer-trigger
+              image: curlimages/curl:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Executing daily FinOps analysis at 3:00 AM..."
+                  # KRR이 targetNamespace에서 발견하는 모든 워크로드를 한 번에 전수 분석합니다.
+                  # 워크로드 수가 많으면 순차 분석에 시간이 걸릴 수 있어 넉넉히 10분 타임아웃을 둡니다.
+                  # -f: 4xx/5xx 응답 시 실패로 처리되어 Job 상태(및 failedJobsHistoryLimit)에 반영됩니다.
+                  curl -sf --max-time 600 -X POST "http://{{ include "finops.fullname" . }}:{{ .Values.service.port }}/analyze/namespace" \
+                    -H "Content-Type: application/json" \
+                    -d '{"namespace": "{{ .Values.cronjob.targetNamespace }}", "send_telegram": true}'
+{{- end }}

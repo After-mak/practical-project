@@ -15,6 +15,10 @@ data "aws_ecr_repository" "sample_fastapi" {
   name = "sample-fastapi"
 }
 
+data "aws_ecr_repository" "finops_analyzer" {
+  name = "finops-analyzer"
+}
+
 # Infra와 Kubernetes는 Terraform State를 분리하여 관리하므로,
 # Infra State에서 ElastiCache 연결 정보를 읽어 Argo CD Helm values에 자동 주입합니다.
 data "terraform_remote_state" "infra" {
@@ -31,12 +35,13 @@ data "terraform_remote_state" "infra" {
 module "argocd_deploy" {
   source = "../../../modules/16-argocd-deploy"
 
-  aws_profile                     = var.aws_profile
-  grafana_admin_password          = var.grafana_admin_password
-  domain_name                     = var.domain_name
-  sample_fastapi_image_repository = data.aws_ecr_repository.sample_fastapi.repository_url
-  sample_fastapi_redis_host       = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
-  sample_fastapi_redis_port       = data.terraform_remote_state.infra.outputs.redis_port
+  aws_profile                      = var.aws_profile
+  grafana_admin_password           = var.grafana_admin_password
+  domain_name                      = var.domain_name
+  sample_fastapi_image_repository  = data.aws_ecr_repository.sample_fastapi.repository_url
+  finops_analyzer_image_repository = data.aws_ecr_repository.finops_analyzer.repository_url
+  sample_fastapi_redis_host        = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
+  sample_fastapi_redis_port        = data.terraform_remote_state.infra.outputs.redis_port
 
   depends_on = [module.argocd]
 }

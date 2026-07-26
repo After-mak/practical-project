@@ -161,6 +161,35 @@ spec:
 YAML
 }
 
+resource "kubectl_manifest" "finops_analyzer" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: finops-analyzer
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/finops
+    helm:
+      values: |
+        image:
+          repository: ${var.finops_analyzer_image_repository}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: finops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
 resource "kubectl_manifest" "argocd_config" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1
@@ -177,6 +206,31 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
+resource "kubectl_manifest" "yelb_app" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: yelb
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/yelb
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: yelb
   syncPolicy:
     automated:
       prune: true
