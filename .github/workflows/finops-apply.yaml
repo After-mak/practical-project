@@ -12,6 +12,11 @@ name: FinOps Apply Resource Recommendation
 #         변경을 "성공"으로 보고하는 대신 명확히 실패합니다.
 #         이 파일은 rollback.yaml / rollback-custom.yaml 처럼 GitOps 저장소(mak-argocd-deploy)에도
 #         복사되어 있어야 실제로 동작합니다.
+#
+# ⚠️ 이 저장소(mak-argocd-deploy)의 repo Secret로 다음이 등록되어 있어야 합니다 (admin 권한 필요):
+#   - Workflow permissions를 "Read and write permissions"로 설정 (git push용, 필수)
+#   - TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (반영 완료/실패를 텔레그램으로 재보고하기 위함, 선택.
+#     없으면 git push까지는 정상 동작하고 알림만 조용히 생략됨)
 on:
   workflow_dispatch:
     inputs:
@@ -115,3 +120,52 @@ jobs:
 
           git commit -m "chore(finops): ${NAMESPACE}/${DEPLOYMENT_NAME} 리소스 요청값을 cpu=${CPU}, memory=${MEMORY}로 반영 (KRR 승인)"
           git push origin HEAD
+
+      # alarm의 trigger_github_workflow()는 "실행 요청이 접수됐다"까지만 확인하고, 이 워크플로우가
+      # 실제로 끝까지 성공/실패했는지는 모릅니다. 그래서 실제 반영 결과를 워크플로우 스스로 텔레그램에
+      # 다시 보고합니다. TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID Secret이 아직 등록 안 되어 있으면
+      # (admin 등록 대기 중) 워크플로우를 실패시키지 않고 알림만 조용히 건너뜁니다.
+      - name: Telegram 반영 완료 알림
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NAMESPACE: ${{ github.event.inputs.namespace }}
+          DEPLOYMENT_NAME: ${{ github.event.inputs.deployment_name }}
+          CPU: ${{ github.event.inputs.cpu }}
+          MEMORY: ${{ github.event.inputs.memory }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID Secret이 없어 완료 알림을 건너뜁니다."
+            exit 0
+          fi
+
+          TEXT=$(printf '✅ [FinOps 반영 완료]\n%s/%s\nCPU: %s / Memory: %s\nGitOps 저장소에 실제로 커밋/푸시되었습니다.' "$NAMESPACE" "$DEPLOYMENT_NAME" "$CPU" "$MEMORY")
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode text="${TEXT}"
+
+      - name: Telegram 반영 실패 알림
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NAMESPACE: ${{ github.event.inputs.namespace }}
+          DEPLOYMENT_NAME: ${{ github.event.inputs.deployment_name }}
+          CPU: ${{ github.event.inputs.cpu }}
+          MEMORY: ${{ github.event.inputs.memory }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID Secret이 없어 실패 알림을 건너뜁니다."
+            exit 0
+          fi
+
+          TEXT=$(printf '🚨 [FinOps 반영 실패]\n%s/%s (cpu=%s, memory=%s)\nGitOps 반영 중 오류가 발생했습니다. 실행 로그를 확인하세요:\n%s' "$NAMESPACE" "$DEPLOYMENT_NAME" "$CPU" "$MEMORY" "$RUN_URL")
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode text="${TEXT}"
