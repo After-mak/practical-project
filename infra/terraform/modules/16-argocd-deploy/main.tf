@@ -85,13 +85,6 @@ spec:
     repoURL: https://github.com/After-mak/mak-argocd-deploy.git
     targetRevision: main
     path: charts/mak-app
-    helm:
-      values: |
-        secrets:
-          jwtRS256.key: |
-            ${indent(12, var.jwt_private_key)}
-          jwtRS256.key.pub: |
-            ${indent(12, var.jwt_public_key)}
   destination:
     server: https://kubernetes.default.svc
     namespace: default
@@ -265,5 +258,30 @@ spec:
     automated:
       prune: true
       selfHeal: true
+YAML
+}
+
+resource "kubectl_manifest" "karpenter_resources" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/karpenter
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - ServerSideApply=true
 YAML
 }

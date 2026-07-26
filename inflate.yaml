@@ -1,0 +1,26 @@
+# inflate.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inflate
+  namespace: default
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: inflate
+  template:
+    metadata:
+      labels:
+        app: inflate
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: inflate
+          image: public.ecr.aws/eks-distro/kubernetes/pause:3.7
+          resources:
+            requests:
+              cpu: 1        # 1 vCPU 요청
+              memory: 1.5Gi
+      # 노드가 새로 만들어지는지 보려면 
+      # 기존 노드에 스케줄되지 않도록 nodeSelector 사용도 가능

@@ -19,3 +19,8 @@ variable "cluster_role_subnet" {
   default = null
   description = "Discern subnet to use the aws lb controller "
 }
+
+variable "karpenter_subnet" {
+  default = null
+  description = "Discern subnet to use the karpenter "
+}

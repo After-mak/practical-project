@@ -94,6 +94,7 @@ resource "aws_security_group" "eks_nodes" {
 
   tags = {
     Name = "${var.name}-eks-node-sg"
+    "karpenter.sh/discovery" = "${var.name}-eks"
   }
 }
 
