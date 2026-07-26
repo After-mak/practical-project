@@ -44,6 +44,15 @@ prometheus:
         memory: 1Gi
     retention: 7d
 grafana:
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: ebs-gp3
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    finalizers:
+      - kubernetes.io/pvc-protection
   resources:
     requests:
       cpu: 50m

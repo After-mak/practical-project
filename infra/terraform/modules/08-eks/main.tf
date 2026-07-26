@@ -14,9 +14,16 @@ module "eks" {
   enable_irsa                              = true
 
   cluster_addons = {
-    coredns    = { resolve_conflicts_on_create = "OVERWRITE" }
-    kube-proxy = { resolve_conflicts_on_create = "OVERWRITE" }
-    vpc-cni    = { resolve_conflicts_on_create = "OVERWRITE" }
+    coredns            = { resolve_conflicts_on_create = "OVERWRITE" }
+    kube-proxy         = { resolve_conflicts_on_create = "OVERWRITE" }
+    vpc-cni            = { resolve_conflicts_on_create = "OVERWRITE" }
+    aws-ebs-csi-driver = { most_recent = true }
+  }
+
+  eks_managed_node_group_defaults = {
+    iam_role_additional_policies = {
+      AmazonEBSCSIDriverPolicy = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+    }
   }
 
   eks_managed_node_groups = {

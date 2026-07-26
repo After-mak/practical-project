@@ -26,5 +26,3 @@ spec:
           from: All
       tls:
         mode: Terminate
-        certificateRefs:
-          - name: unused

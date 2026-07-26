@@ -11,6 +11,8 @@ kind: Application
 metadata:
   name: prometheus-stack
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -51,6 +53,8 @@ kind: Application
 metadata:
   name: keda
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -79,6 +83,8 @@ kind: Application
 metadata:
   name: mak-app
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -111,6 +117,8 @@ kind: Application
 metadata:
   name: postgres-app
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -136,6 +144,8 @@ kind: Application
 metadata:
   name: sample-fastapi
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -197,6 +207,8 @@ kind: Application
 metadata:
   name: argocd-config
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
@@ -252,6 +264,8 @@ kind: Application
 metadata:
   name: cnpg-db
   namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:

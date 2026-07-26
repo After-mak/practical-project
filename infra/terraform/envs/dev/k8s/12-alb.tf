@@ -27,6 +27,14 @@ resource "kubectl_manifest" "gateway" {
 
 
 # ALB 대기 (이 다음 route53을 달아야되기 때문에 pod에서 요청 넘기고 실제 alb가 생성되기까지 기다리기) 
+# The Argo CD application module depends on this guard. During destroy that
+# reverses the order and leaves time for HTTPRoutes and target groups to be
+# removed before the shared Gateway/ALB disappears.
+resource "time_sleep" "wait_for_gateway_cleanup" {
+  depends_on       = [kubectl_manifest.gateway]
+  destroy_duration = "120s"
+}
+
 resource "time_sleep" "wait_for_alb" {
   depends_on      = [kubectl_manifest.gateway]
   create_duration = "300s"
@@ -35,4 +43,11 @@ resource "time_sleep" "wait_for_alb" {
 data "aws_lb" "this" {
   name       = "project03-alb"
   depends_on = [time_sleep.wait_for_alb]
+
+  lifecycle {
+    postcondition {
+      condition     = self.vpc_id == data.terraform_remote_state.infra.outputs.vpc_id
+      error_message = "project03-alb exists in a different VPC. Remove the stale ALB/target groups before provisioning this environment."
+    }
+  }
 }

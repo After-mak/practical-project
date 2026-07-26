@@ -43,5 +43,11 @@ module "argocd_deploy" {
   sample_fastapi_redis_host        = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
   sample_fastapi_redis_port        = data.terraform_remote_state.infra.outputs.redis_port
 
-  depends_on = [module.argocd]
+  # Create: Gateway -> cleanup guard -> Argo CD applications.
+  # Destroy: Argo CD applications -> cleanup wait -> Gateway.
+  depends_on = [
+    module.argocd,
+    kubectl_manifest.ebs_gp3_storage_class,
+    time_sleep.wait_for_gateway_cleanup
+  ]
 }
