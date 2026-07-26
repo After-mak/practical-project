@@ -94,9 +94,9 @@ spec:
     helm:
       values: |
         secrets:
-          jwtRS256.key: |
+          jwtPrivateKey: |
             ${indent(12, var.jwt_private_key)}
-          jwtRS256.key.pub: |
+          jwtPublicKey: |
             ${indent(12, var.jwt_public_key)}
   destination:
     server: https://kubernetes.default.svc
@@ -218,31 +218,6 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
-YAML
-}
-
-resource "kubectl_manifest" "yelb_app" {
-  yaml_body = <<YAML
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: yelb
-  namespace: argocd
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
-    targetRevision: main
-    path: charts/yelb
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: yelb
   syncPolicy:
     automated:
       prune: true

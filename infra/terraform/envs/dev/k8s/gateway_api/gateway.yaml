@@ -26,3 +26,6 @@ spec:
           from: All
       tls:
         mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: dummy-cert-secret
