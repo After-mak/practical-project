@@ -25,6 +25,11 @@ resource "kubectl_manifest" "gateway" {
   depends_on = [kubectl_manifest.gatewayclass, kubectl_manifest.lb_config]
 }
 
+resource "kubectl_manifest" "tg_gateway_route" {
+  yaml_body  = file("${path.module}/gateway_api/tg-gateway-route.yaml")
+  depends_on = [kubectl_manifest.gateway]
+}
+
 
 # ALB 대기 (이 다음 route53을 달아야되기 때문에 pod에서 요청 넘기고 실제 alb가 생성되기까지 기다리기) 
 # The Argo CD application module depends on this guard. During destroy that
