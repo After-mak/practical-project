@@ -342,6 +342,10 @@ spec:
     targetRevision: 15.7.0
     helm:
       values: |
+        image:
+          registry: quay.io
+          repository: thanos/thanos
+          tag: v0.35.1
         query:
           enabled: true
           replicaCount: 1
