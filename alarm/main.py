@@ -50,6 +50,10 @@ print("--------------------------------------------------")
 
 app = FastAPI(title="FinOps Telegram Alert Gateway")
 
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "service": "tg-gateway"}
+
 
 def poll_telegram_updates():
     """공개 인바운드 경로가 없어도 Telegram callback_query를 수신합니다."""
