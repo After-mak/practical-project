@@ -1,5 +1,7 @@
 import os
 import requests
+import threading
+import time
 from typing import Optional
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
@@ -20,11 +22,16 @@ elif os.path.exists(env_root):
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_UPDATE_MODE = os.getenv("TELEGRAM_UPDATE_MODE", "webhook").lower()
+TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "https://alarm.tuby.shop").rstrip("/")
 
 GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")
+ROLLBACK_WORKFLOW_REPO_NAME = os.getenv("ROLLBACK_WORKFLOW_REPO_NAME", "practical-project")
+ROLLBACK_WORKFLOW_BRANCH = os.getenv("ROLLBACK_WORKFLOW_BRANCH", "dev")
+GITOPS_TARGET_BRANCH = os.getenv("GITOPS_TARGET_BRANCH", "main")
 
 # FinOps(KRR) 정책 엔진 서비스 주소. infra_approve/infra_reject 콜백 처리 시
 # "실제로 얼마로 바꿀지"(최종 cpu/memory)를 조회하기 위해 호출합니다.
@@ -42,6 +49,78 @@ print(f"🆔 TELEGRAM_CHAT_ID 로드 상태: {'✅ 성공' if TELEGRAM_CHAT_ID e
 print("--------------------------------------------------")
 
 app = FastAPI(title="FinOps Telegram Alert Gateway")
+
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "service": "tg-gateway"}
+
+
+def poll_telegram_updates():
+    """공개 인바운드 경로가 없어도 Telegram callback_query를 수신합니다."""
+    offset = 0
+    # Uvicorn startup이 끝나고 로컬 callback endpoint가 요청을 받을 때까지 기다립니다.
+    time.sleep(1)
+    while True:
+        try:
+            res = requests.get(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
+                params={"offset": offset, "timeout": 25, "allowed_updates": '["callback_query"]'},
+                timeout=30,
+            )
+            payload = res.json()
+            if not payload.get("ok"):
+                print(f"⚠️ Telegram polling 실패: {payload}")
+                time.sleep(5)
+                continue
+
+            for update in payload.get("result", []):
+                callback_res = requests.post(
+                    "http://127.0.0.1:8000/webhook/telegram",
+                    json=update,
+                    timeout=30,
+                )
+                callback_res.raise_for_status()
+                # 내부 callback 처리가 성공한 Update만 소비 처리합니다.
+                offset = update["update_id"] + 1
+        except Exception as e:
+            print(f"❌ Telegram polling 에러: {e}")
+            time.sleep(5)
+
+
+@app.on_event("startup")
+def configure_telegram_updates():
+    if not TELEGRAM_BOT_TOKEN:
+        print("⚠️ TELEGRAM_BOT_TOKEN이 없어 callback 수신 설정을 건너뜁니다.")
+        return
+
+    if TELEGRAM_UPDATE_MODE == "polling":
+        # getUpdates와 webhook은 동시에 사용할 수 없으므로 polling 모드에서 기존 webhook을 해제합니다.
+        res = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook",
+            json={"drop_pending_updates": False},
+            timeout=10,
+        )
+        res.raise_for_status()
+        threading.Thread(target=poll_telegram_updates, daemon=True).start()
+        print("✅ Telegram callback 수신 모드: polling")
+        return
+
+    if TELEGRAM_UPDATE_MODE == "webhook":
+        if not TELEGRAM_WEBHOOK_URL:
+            raise RuntimeError("TELEGRAM_UPDATE_MODE=webhook이면 TELEGRAM_WEBHOOK_URL이 필요합니다.")
+        res = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+            json={
+                "url": f"{TELEGRAM_WEBHOOK_URL}/webhook/telegram",
+                "allowed_updates": ["callback_query"],
+            },
+            timeout=10,
+        )
+        res.raise_for_status()
+        print(f"✅ Telegram callback 수신 모드: webhook ({TELEGRAM_WEBHOOK_URL}/webhook/telegram)")
+        return
+
+    raise RuntimeError("TELEGRAM_UPDATE_MODE는 polling 또는 webhook이어야 합니다.")
 
 # ==========================================
 # 📊 Pydantic 모델 정의
@@ -89,6 +168,20 @@ def update_telegram_message(chat_id: int, message_id: int, new_text: str):
     except Exception as e:
         print(f"❌ Telegram 메시지 수정 에러: {e}")
 
+
+def answer_telegram_callback(callback_query_id: str, text: str = "요청을 접수했습니다."):
+    """버튼의 로딩 상태를 즉시 종료하고 사용자에게 접수 결과를 표시합니다."""
+    if not callback_query_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id, "text": text},
+            timeout=5,
+        )
+    except Exception as e:
+        print(f"❌ Telegram callback 응답 에러: {e}")
+
 def append_progress_status(original_text: str, status_line: str) -> str:
     """
     FinOps(KRR) 승인/거부 처리 중 무엇을 변경하는지 계속 볼 수 있도록,
@@ -116,14 +209,21 @@ def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optiona
         print(f"❌ FinOps 추천값 조회 에러: {e}")
         return None
 
-def trigger_github_workflow(workflow_file: str, inputs: dict = None):
-    url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/actions/workflows/{workflow_file}/dispatches"
+def trigger_github_workflow(
+    workflow_file: str,
+    inputs: dict = None,
+    repo_name: str = None,
+    ref: str = None,
+) -> bool:
+    target_repo = repo_name or GITHUB_REPO_NAME
+    target_ref = ref or TARGET_BRANCH
+    url = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{target_repo}/actions/workflows/{workflow_file}/dispatches"
     
     headers = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
     }
-    payload = {"ref": TARGET_BRANCH}
+    payload = {"ref": target_ref}
     if inputs:
         payload["inputs"] = inputs
         
@@ -134,13 +234,17 @@ def trigger_github_workflow(workflow_file: str, inputs: dict = None):
         if res.status_code not in [200, 201, 202, 204]:
             send_telegram_message(
                 f"🚨 *[GitHub Actions 호출 실패]*\n"
+                f"• Repository: `{GITHUB_REPO_OWNER}/{target_repo}`\n"
                 f"• Workflow: `{workflow_file}`\n"
                 f"• HTTP 상태코드: `{res.status_code}`\n"
                 f"• 토큰/권한 및 `.env` 설정을 확인하세요."
             )
+            return False
+        return True
     except Exception as e:
         print(f"❌ GitHub API 호출 에러: {e}")
         send_telegram_message(f"🚨 *[GitHub API 통신 에러]*: `{e}`")
+        return False
 
 # ==========================================
 # 📩 Webhook Endpoints (총 5개)
@@ -257,6 +361,7 @@ async def telegram_callback_webhook(request: Request):
     
     if "callback_query" in data:
         callback = data["callback_query"]
+        answer_telegram_callback(callback.get("id", ""))
         callback_data = callback.get("data", "")
         chat_id = callback["message"]["chat"]["id"]
         message_id = callback["message"]["message_id"]
@@ -264,14 +369,30 @@ async def telegram_callback_webhook(request: Request):
         
         if callback_data == "rollback_head":
             update_telegram_message(chat_id, message_id, "⏳ *[롤백 진행 중]* 직전 커밋 버전으로 롤백 파이프라인을 실행합니다...")
-            trigger_github_workflow("rollback.yaml")
-            update_telegram_message(chat_id, message_id, "✅ *[롤백 완료]* 직전 커밋 버전 롤백 파이프라인이 성공적으로 호출되었습니다!")
+            started = trigger_github_workflow(
+                "rollback.yaml",
+                {"target_branch": GITOPS_TARGET_BRANCH},
+                repo_name=ROLLBACK_WORKFLOW_REPO_NAME,
+                ref=ROLLBACK_WORKFLOW_BRANCH,
+            )
+            if started:
+                update_telegram_message(chat_id, message_id, "✅ *[롤백 요청 완료]* 직전 커밋 버전 롤백 파이프라인이 시작되었습니다!")
+            else:
+                update_telegram_message(chat_id, message_id, "❌ *[롤백 요청 실패]* GitHub Actions 파이프라인을 시작하지 못했습니다.")
 
         elif callback_data.startswith("rollback_custom_"):
             target_tag = callback_data.replace("rollback_custom_", "")
             update_telegram_message(chat_id, message_id, f"⏳ *[지정 롤백 진행 중]* `{target_tag}` 버전으로 롤백 중입니다...")
-            trigger_github_workflow("rollback-custom.yaml", {"target_tag": target_tag})
-            update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 완료]* `{target_tag}` 버전 롤백 파이프라인이 실행되었습니다!")
+            started = trigger_github_workflow(
+                "rollback-custom.yaml",
+                {"target_tag": target_tag, "target_branch": GITOPS_TARGET_BRANCH},
+                repo_name=ROLLBACK_WORKFLOW_REPO_NAME,
+                ref=ROLLBACK_WORKFLOW_BRANCH,
+            )
+            if started:
+                update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 요청 완료]* `{target_tag}` 버전 롤백 파이프라인이 시작되었습니다!")
+            else:
+                update_telegram_message(chat_id, message_id, f"❌ *[지정 롤백 요청 실패]* `{target_tag}` 롤백 파이프라인을 시작하지 못했습니다.")
 
         elif callback_data.startswith("deploy_approve_"):
             target_tag = callback_data.replace("deploy_approve_", "")
