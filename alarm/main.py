@@ -28,16 +28,13 @@ TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "https://alarm.tuby.sho
 GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
-TARGET_BRANCH = os.getenv("TARGET_BRANCH", "dev")
+# ✅ 수정 1: mak-argocd-deploy의 기본 브랜치는 main이므로 기본값을 main으로 변경
+TARGET_BRANCH = os.getenv("TARGET_BRANCH", "main")
 ROLLBACK_WORKFLOW_REPO_NAME = os.getenv("ROLLBACK_WORKFLOW_REPO_NAME", "practical-project")
 ROLLBACK_WORKFLOW_BRANCH = os.getenv("ROLLBACK_WORKFLOW_BRANCH", "dev")
 GITOPS_TARGET_BRANCH = os.getenv("GITOPS_TARGET_BRANCH", "main")
 
-# FinOps(KRR) 정책 엔진 서비스 주소. infra_approve/infra_reject 콜백 처리 시
-# "실제로 얼마로 바꿀지"(최종 cpu/memory)를 조회하기 위해 호출합니다.
-# ArgoCD Application 이름이 "finops-analyzer"라 Helm release 이름도 그걸 따르고
-# (finops.fullname 템플릿이 Release.Name을 그대로 씀), 그 결과 Service 이름도
-# "finops-analyzer"가 됩니다 (단순히 "finops"가 아님).
+# FinOps(KRR) 정책 엔진 서비스 주소. 
 FINOPS_URL = os.getenv("FINOPS_URL", "http://finops-analyzer.finops.svc.cluster.local:8000")
 
 GRAFANA_URL = "http://tuby.shop:3000"
@@ -58,7 +55,6 @@ async def health_check():
 def poll_telegram_updates():
     """공개 인바운드 경로가 없어도 Telegram callback_query를 수신합니다."""
     offset = 0
-    # Uvicorn startup이 끝나고 로컬 callback endpoint가 요청을 받을 때까지 기다립니다.
     time.sleep(1)
     while True:
         try:
@@ -80,7 +76,6 @@ def poll_telegram_updates():
                     timeout=30,
                 )
                 callback_res.raise_for_status()
-                # 내부 callback 처리가 성공한 Update만 소비 처리합니다.
                 offset = update["update_id"] + 1
         except Exception as e:
             print(f"❌ Telegram polling 에러: {e}")
@@ -94,7 +89,6 @@ def configure_telegram_updates():
         return
 
     if TELEGRAM_UPDATE_MODE == "polling":
-        # getUpdates와 webhook은 동시에 사용할 수 없으므로 polling 모드에서 기존 webhook을 해제합니다.
         res = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook",
             json={"drop_pending_updates": False},
@@ -170,7 +164,6 @@ def update_telegram_message(chat_id: int, message_id: int, new_text: str):
 
 
 def answer_telegram_callback(callback_query_id: str, text: str = "요청을 접수했습니다."):
-    """버튼의 로딩 상태를 즉시 종료하고 사용자에게 접수 결과를 표시합니다."""
     if not callback_query_id:
         return
     try:
@@ -183,21 +176,11 @@ def answer_telegram_callback(callback_query_id: str, text: str = "요청을 접�
         print(f"❌ Telegram callback 응답 에러: {e}")
 
 def append_progress_status(original_text: str, status_line: str) -> str:
-    """
-    FinOps(KRR) 승인/거부 처리 중 무엇을 변경하는지 계속 볼 수 있도록,
-    원본 리포트(현재/KRR/최종 리소스 비교표 등)는 지우지 않고 그 아래에
-    진행 상태 한 줄만 덧붙여 editMessageText로 갱신합니다.
-    """
     if original_text:
         return f"{original_text}\n\n{status_line}"
     return status_line
 
 def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
-    """
-    FinOps(KRR) 정책 엔진에서 마지막으로 계산된 최종 권장 cpu/memory 값을 조회합니다.
-    Telegram callback_data는 64바이트 제한 때문에 namespace/deployment 이름만 담고 있어,
-    실제로 적용할 값은 여기서 별도로 가져와야 합니다.
-    """
     try:
         url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
         res = requests.get(url, timeout=10)
@@ -225,18 +208,24 @@ def trigger_github_workflow(
     }
     payload = {"ref": target_ref}
     if inputs:
-        payload["inputs"] = inputs
+        # ✅ 수정 2: 모든 inputs 값을 강제로 문자열(str)로 변환 (422 타입 에러 방지)
+        payload["inputs"] = {str(k): str(v) for k, v in inputs.items()}
         
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=10)
         print(f"📡 GitHub API [{workflow_file}] 호출 완료 -> 응답 코드: {res.status_code}")
         
         if res.status_code not in [200, 201, 202, 204]:
+            # ✅ 수정 3: 실패 상세 사유 출력 및 텔레그램 알림 포함
+            error_detail = res.text
+            print(f"❌ GitHub API 에러 상세: {error_detail}")
+            
             send_telegram_message(
                 f"🚨 *[GitHub Actions 호출 실패]*\n"
                 f"• Repository: `{GITHUB_REPO_OWNER}/{target_repo}`\n"
                 f"• Workflow: `{workflow_file}`\n"
                 f"• HTTP 상태코드: `{res.status_code}`\n"
+                f"• 상세 원인: `{error_detail}`\n"
                 f"• 토큰/권한 및 `.env` 설정을 확인하세요."
             )
             return False
@@ -251,7 +240,6 @@ def trigger_github_workflow(
 # ==========================================
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request):
-    """1️⃣ Alertmanager 리소스 임계치 초과 알림 (실제 페이로드 파싱)"""
     payload = await request.json()
     alerts = payload.get("alerts", [])
     if not alerts:
@@ -286,7 +274,6 @@ async def alertmanager_webhook(request: Request):
 
 @app.post("/webhook/finops")
 async def finops_webhook(req: Optional[CustomRollbackRequest] = None):
-    """2️⃣ FinOps OOMKill 위험 및 지정 버전 롤백 알림"""
     if req is None:
         req = CustomRollbackRequest()
         
@@ -306,7 +293,6 @@ async def finops_webhook(req: Optional[CustomRollbackRequest] = None):
 
 @app.post("/webhook/deploy-request")
 async def deploy_request_webhook(req: Optional[DeployRequest] = None):
-    """3️⃣ KRR 최적화 스펙 승인 요청 알림"""
     if req is None:
         req = DeployRequest()
 
@@ -330,7 +316,6 @@ async def deploy_request_webhook(req: Optional[DeployRequest] = None):
 
 @app.post("/webhook/rollout")
 async def rollout_failed_webhook(request: Request):
-    """4️⃣ Argo Rollouts 검증 실패 및 자동 롤백 알림"""
     try:
         data = await request.json()
         rollout_name = data.get("rollout", "mak-app")
@@ -356,7 +341,6 @@ async def rollout_failed_webhook(request: Request):
 
 @app.post("/webhook/telegram")
 async def telegram_callback_webhook(request: Request):
-    """5️⃣ 텔레그램 버튼 클릭(Callback) 처리"""
     data = await request.json()
     
     if "callback_query" in data:
@@ -397,11 +381,16 @@ async def telegram_callback_webhook(request: Request):
         elif callback_data.startswith("deploy_approve_"):
             target_tag = callback_data.replace("deploy_approve_", "")
             update_telegram_message(chat_id, message_id, f"⏳ *[배포 진행 중]* `{target_tag}` 버전 최적화 배포를 시작합니다...")
-            trigger_github_workflow("deploy.yaml", {"target_tag": target_tag})
+            
+            # ✅ 수정 4: deploy.yaml 호출 시 GITOPS_TARGET_BRANCH (main) 강제 지정
+            trigger_github_workflow(
+                "deploy.yaml", 
+                {"target_tag": target_tag},
+                ref=GITOPS_TARGET_BRANCH
+            )
             update_telegram_message(chat_id, message_id, f"🚀 *[배포 승인 완료]* `{target_tag}` 최적화 배포 파이프라인이 성공적으로 가동되었습니다!")
 
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
-            # 6️⃣ FinOps(KRR) 리소스 최적화 권장안 반려: namespace:deployment_name 컨텍스트만 있으면 됨
             rest = callback_data[len("infra_reject"):].lstrip(":")
             target_namespace, _, target_deployment = rest.partition(":")
             label = f"{target_namespace}/{target_deployment}" if target_deployment else "대상 워크로드"
@@ -414,8 +403,6 @@ async def telegram_callback_webhook(request: Request):
             )
 
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
-            # 7️⃣ FinOps(KRR) 리소스 최적화 권장안 승인: 실제 cpu/memory 값은 callback_data에 담을 수
-            # 없으므로(64바이트 제한) FinOps 엔진에 다시 물어봐서 가져온 뒤 GitOps 파이프라인에 반영
             rest = callback_data[len("infra_approve"):].lstrip(":")
             target_namespace, _, target_deployment = rest.partition(":")
 
@@ -454,12 +441,18 @@ async def telegram_callback_webhook(request: Request):
                             f"⏳ *[적용 진행 중]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영을 시작합니다..."
                         )
                     )
-                    trigger_github_workflow("finops-apply.yaml", {
-                        "namespace": target_namespace,
-                        "deployment_name": target_deployment,
-                        "cpu": final_cpu,
-                        "memory": final_memory,
-                    })
+                    
+                    # ✅ 수정 5: finops-apply.yaml 호출 시에도 GITOPS_TARGET_BRANCH (main) 강제 지정
+                    trigger_github_workflow(
+                        "finops-apply.yaml", 
+                        {
+                            "namespace": target_namespace,
+                            "deployment_name": target_deployment,
+                            "cpu": final_cpu,
+                            "memory": final_memory,
+                        },
+                        ref=GITOPS_TARGET_BRANCH
+                    )
                     update_telegram_message(
                         chat_id, message_id,
                         append_progress_status(
