@@ -287,6 +287,34 @@ spec:
 YAML
 }
 
+# ----------------------------------------------------------------
+# FinOps KRR Logs 전용 CNPG Database 클러스터 배포 (GitOps 연동)
+# ----------------------------------------------------------------
+resource "kubectl_manifest" "krr_data_db" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: krr-data-db
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/krr-data-db
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: finops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
 resource "kubectl_manifest" "karpenter_resources" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1
