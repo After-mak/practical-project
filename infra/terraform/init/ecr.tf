@@ -29,3 +29,14 @@ output "finops_analyzer_ecr_repository_url" {
   value       = module.finops_analyzer_ecr.repository_url
 }
 
+
+module "tg_gateway_ecr" {
+  source                = "../modules/09-ecr"
+  repository_name       = "tg-gateway"
+  image_tag_mutability  = "IMMUTABLE"
+}
+
+output "tg_gateway_ecr_repository_url" {
+  description = "TG Gateway ECR Repository URL"
+  value       = module.tg_gateway_ecr.repository_url
+}
