@@ -22,8 +22,8 @@ elif os.path.exists(env_root):
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-TELEGRAM_UPDATE_MODE = os.getenv("TELEGRAM_UPDATE_MODE", "polling").lower()
-TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "").rstrip("/")
+TELEGRAM_UPDATE_MODE = os.getenv("TELEGRAM_UPDATE_MODE", "webhook").lower()
+TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "https://alarm.tuby.shop").rstrip("/")
 
 GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
