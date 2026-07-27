@@ -89,6 +89,16 @@ def update_telegram_message(chat_id: int, message_id: int, new_text: str):
     except Exception as e:
         print(f"❌ Telegram 메시지 수정 에러: {e}")
 
+def append_progress_status(original_text: str, status_line: str) -> str:
+    """
+    FinOps(KRR) 승인/거부 처리 중 무엇을 변경하는지 계속 볼 수 있도록,
+    원본 리포트(현재/KRR/최종 리소스 비교표 등)는 지우지 않고 그 아래에
+    진행 상태 한 줄만 덧붙여 editMessageText로 갱신합니다.
+    """
+    if original_text:
+        return f"{original_text}\n\n{status_line}"
+    return status_line
+
 def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
     """
     FinOps(KRR) 정책 엔진에서 마지막으로 계산된 최종 권장 cpu/memory 값을 조회합니다.
@@ -250,6 +260,7 @@ async def telegram_callback_webhook(request: Request):
         callback_data = callback.get("data", "")
         chat_id = callback["message"]["chat"]["id"]
         message_id = callback["message"]["message_id"]
+        original_text = callback["message"].get("text", "")
         
         if callback_data == "rollback_head":
             update_telegram_message(chat_id, message_id, "⏳ *[롤백 진행 중]* 직전 커밋 버전으로 롤백 파이프라인을 실행합니다...")
@@ -275,7 +286,10 @@ async def telegram_callback_webhook(request: Request):
             label = f"{target_namespace}/{target_deployment}" if target_deployment else "대상 워크로드"
             update_telegram_message(
                 chat_id, message_id,
-                f"❌ *[반려 완료]* `{label}` 리소스 최적화 권장안을 반려했습니다. 현재 리소스 설정을 그대로 유지합니다."
+                append_progress_status(
+                    original_text,
+                    f"❌ *[반려 완료]* `{label}` 리소스 최적화 권장안을 반려했습니다. 현재 리소스 설정을 그대로 유지합니다."
+                )
             )
 
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
@@ -287,25 +301,37 @@ async def telegram_callback_webhook(request: Request):
             if not target_namespace or not target_deployment:
                 update_telegram_message(
                     chat_id, message_id,
-                    "⚠️ *[적용 실패]* 콜백 데이터에 namespace/deployment 정보가 없어 어떤 워크로드에 적용할지 알 수 없습니다."
+                    append_progress_status(
+                        original_text,
+                        "⚠️ *[적용 실패]* 콜백 데이터에 namespace/deployment 정보가 없어 어떤 워크로드에 적용할지 알 수 없습니다."
+                    )
                 )
             else:
                 label = f"{target_namespace}/{target_deployment}"
-                update_telegram_message(chat_id, message_id, f"⏳ *[적용 준비 중]* `{label}`의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다...")
+                update_telegram_message(
+                    chat_id, message_id,
+                    append_progress_status(original_text, f"⏳ *[적용 준비 중]* `{label}`의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다...")
+                )
 
                 recommendation = fetch_finops_recommendation(target_namespace, target_deployment)
                 if recommendation is None:
                     update_telegram_message(
                         chat_id, message_id,
-                        f"⚠️ *[적용 실패]* `{label}`의 최근 분석 결과를 찾을 수 없습니다 (만료되었거나 FinOps 엔진 연결 실패). "
-                        f"FinOps에서 분석을 다시 실행한 뒤 승인해주세요."
+                        append_progress_status(
+                            original_text,
+                            f"⚠️ *[적용 실패]* `{label}`의 최근 분석 결과를 찾을 수 없습니다 (만료되었거나 FinOps 엔진 연결 실패). "
+                            f"FinOps에서 분석을 다시 실행한 뒤 승인해주세요."
+                        )
                     )
                 else:
                     final_cpu = recommendation["final_cpu"]
                     final_memory = recommendation["final_memory"]
                     update_telegram_message(
                         chat_id, message_id,
-                        f"⏳ *[적용 진행 중]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영을 시작합니다..."
+                        append_progress_status(
+                            original_text,
+                            f"⏳ *[적용 진행 중]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영을 시작합니다..."
+                        )
                     )
                     trigger_github_workflow("finops-apply.yaml", {
                         "namespace": target_namespace,
@@ -315,7 +341,10 @@ async def telegram_callback_webhook(request: Request):
                     })
                     update_telegram_message(
                         chat_id, message_id,
-                        f"✅ *[적용 요청 완료]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영 파이프라인이 시작되었습니다!"
+                        append_progress_status(
+                            original_text,
+                            f"✅ *[적용 요청 완료]* `{label}`에 CPU `{final_cpu}` / Memory `{final_memory}` 반영 파이프라인이 시작되었습니다!"
+                        )
                     )
 
     return {"status": "ok"}

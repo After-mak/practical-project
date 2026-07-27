@@ -159,6 +159,7 @@ class KrrClient:
 
             rec_requests = recommended.get("requests", {}) or {}
             curr_requests = current_alloc.get("requests", {}) or {}
+            curr_limits = current_alloc.get("limits", {}) or {}
 
             results[name] = {
                 "current": {
@@ -168,6 +169,12 @@ class KrrClient:
                 "krr_recommended": {
                     "cpu": self._format_resource_value(rec_requests.get("cpu"), "cpu"),
                     "memory": self._format_resource_value(rec_requests.get("memory"), "memory")
+                },
+                # 현재 배포된 컨테이너의 limits. requests > limits는 Kubernetes가 반영 자체를 거부하므로
+                # 정책 엔진이 최종 권장값을 이 값 이하로 캡 걸 때 사용합니다. limits가 설정 안 돼있으면 None.
+                "current_limits": {
+                    "cpu": self._format_resource_value(curr_limits.get("cpu"), "cpu"),
+                    "memory": self._format_resource_value(curr_limits.get("memory"), "memory")
                 }
             }
 
