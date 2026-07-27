@@ -422,3 +422,60 @@ class TelegramClient:
             logger.error(f"[TelegramClient] Exception during Telegram dispatch: {e}")
 
         return False
+
+
+class KrrDbClient:
+    """
+    KRR 분석 결과를 CNPG 데이터베이스(krr_logs_db)의 krr_logs 테이블에 저장하는 부분.
+    """
+    def __init__(self, db_uri: str = ""):
+        self.db_uri = db_uri or os.getenv("KRR_DB_URI", "") or os.getenv("DATABASE_URL", "")
+        if not self.db_uri and os.getenv("DB_HOST"):
+            user = os.getenv("DB_USER", "scott")
+            password = os.getenv("DB_PASSWORD", "tiger")
+            host = os.getenv("DB_HOST", "krr-data-db-rw.default.svc.cluster.local")
+            port = os.getenv("DB_PORT", "5432")
+            dbname = os.getenv("DB_NAME", "krr_logs_db")
+            self.db_uri = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+
+    def save_log(
+        self,
+        namespace: str,
+        deployment_name: str,
+        cpu_current: str,
+        cpu_recommended: str,
+        mem_current: str,
+        mem_recommended: str
+    ) -> bool:
+        if not self.db_uri:
+            logger.debug("[KrrDbClient] KRR_DB_URI 또는 DB_HOST가 설정되지 않아 DB 저장을 스킵합니다.")
+            return False
+
+        try:
+            import psycopg2
+            with psycopg2.connect(self.db_uri, connect_timeout=5) as conn:
+                with conn.cursor() as cur:
+                    query = """
+                        INSERT INTO krr_logs (
+                            namespace, deployment_name,
+                            cpu_current, cpu_recommended,
+                            mem_current, mem_recommended
+                        ) VALUES (%s, %s, %s, %s, %s, %s)
+                    """
+                    cur.execute(query, (
+                        namespace,
+                        deployment_name,
+                        str(cpu_current),
+                        str(cpu_recommended),
+                        str(mem_current),
+                        str(mem_recommended)
+                    ))
+                conn.commit()
+            logger.info(f"[KrrDbClient] Successfully inserted log for '{namespace}/{deployment_name}' into krr_logs table!")
+            return True
+        except ImportError:
+            logger.error("[KrrDbClient] psycopg2-binary 라이브러리가 설치되지 않았습니다.")
+            return False
+        except Exception as e:
+            logger.error(f"[KrrDbClient] Error inserting log into DB: {e}")
+            return False

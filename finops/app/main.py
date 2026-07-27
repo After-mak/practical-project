@@ -9,7 +9,7 @@ from app.schemas import (
     AnalysisRequest, AnalysisResponse, NamespaceAnalysisRequest, NamespaceAnalysisResponse,
     ResourceSpec, PrometheusMetrics, ChronosForecast
 )
-from app.clients import KrrClient, PrometheusClient, ChronosClient, TelegramClient
+from app.clients import KrrClient, PrometheusClient, ChronosClient, TelegramClient, KrrDbClient
 from app.engine import PolicyEngine, parse_cpu, parse_memory
 from app.formatter import ReportFormatter
 
@@ -59,6 +59,7 @@ krr_client = KrrClient(PROMETHEUS_URL)
 prom_client = PrometheusClient(PROMETHEUS_URL)
 chronos_client = ChronosClient(CHRONOS_URL)
 telegram_client = TelegramClient(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+krr_db_client = KrrDbClient()
 policy_engine = PolicyEngine()
 
 # ==========================================
@@ -245,6 +246,16 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
             deployment_name=deployment_name,
             namespace=namespace
         )
+
+    # 7-2. KRR 분석 결과를 CNPG DB (krr_logs 테이블)에 저장
+    krr_db_client.save_log(
+        namespace=namespace,
+        deployment_name=deployment_name,
+        cpu_current=current_spec.cpu,
+        cpu_recommended=recommendations.final.cpu,
+        mem_current=current_spec.memory,
+        mem_recommended=recommendations.final.memory
+    )
 
     # 8. 응답 빌드
     result = AnalysisResponse(

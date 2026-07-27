@@ -34,6 +34,18 @@ spec:
               value: {{ .Values.env.autoSendTelegram | quote }}
             - name: LOG_FORMAT
               value: {{ .Values.env.logFormat | default "text" | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.env.dbSecretName | default "krr-data-db-app" }}
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.env.dbSecretName | default "krr-data-db-app" }}
+                  key: password
+            - name: KRR_DB_URI
+              value: "postgresql://$(DB_USER):$(DB_PASSWORD)@{{ .Values.env.dbHost | default "krr-data-db-rw.finops.svc.cluster.local" }}:{{ .Values.env.dbPort | default "5432" }}/{{ .Values.env.dbName | default "krr_logs_db" }}"
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
