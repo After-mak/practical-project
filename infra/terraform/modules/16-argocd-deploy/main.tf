@@ -159,6 +159,19 @@ spec:
         redis:
           host: ${var.sample_fastapi_redis_host}
           port: ${var.sample_fastapi_redis_port}
+        worker:
+          autoscaling:
+            minReplicaCount: 1
+            maxReplicaCount: 15
+            pollingInterval: 5
+            cooldownPeriod: 60
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
   destination:
     server: https://kubernetes.default.svc
     namespace: sample-fastapi
