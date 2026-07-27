@@ -110,32 +110,7 @@ spec:
 YAML
 }
 
-resource "kubectl_manifest" "postgres_app" {
-  yaml_body = <<YAML
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: postgres-app
-  namespace: argocd
-  finalizers:
-  - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
-    targetRevision: main
-    path: charts/postgres
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: default
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
-YAML
-}
+
 
 resource "kubectl_manifest" "sample_fastapi" {
   yaml_body = <<YAML
@@ -341,6 +316,66 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
+resource "kubectl_manifest" "thanos" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: thanos
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: thanos
+    targetRevision: 15.7.0
+    helm:
+      values: |
+        query:
+          enabled: true
+          replicaCount: 1
+          # Prometheus Sidecar와 Thanos Store를 연결
+          stores:
+            - "prometheus-operated.prometheus.svc.cluster.local:10901"
+          serviceAccount:
+            create: true
+            name: thanos-query
+            annotations:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
+        storegateway:
+          enabled: true
+          replicaCount: 1
+          serviceAccount:
+            create: true
+            name: thanos-store
+            annotations:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
+        objstoreConfig: |-
+          type: s3
+          config:
+            bucket: project03-thanos-metrics-83154bf5
+            endpoint: s3.ap-northeast-2.amazonaws.com
+            region: ap-northeast-2
+        compactor:
+          enabled: false
+        bucketweb:
+          enabled: false
+        receive:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
   syncPolicy:
     automated:
       prune: true

@@ -1,7 +1,7 @@
 variable "domain_name" {
   description = "사용할 도메인 이름"
   type        = string
-  default     = "toby.shop"
+  default     = "tuby.shop"
 }
 
 data "aws_route53_zone" "this" {

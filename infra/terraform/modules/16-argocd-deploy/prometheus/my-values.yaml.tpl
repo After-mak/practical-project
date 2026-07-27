@@ -42,8 +42,19 @@ prometheus:
       limits:
         cpu: 500m
         memory: 1Gi
-    retention: 7d
+    retention: 2d
+    thanos:
+      objectStorageConfig:
+        name: thanos-objstore-config
+        key: objstore.yml
 grafana:
+  additionalDataSources:
+    - name: Thanos
+      type: prometheus
+      url: http://thanos-query.prometheus.svc.cluster.local:9090
+      access: proxy
+      isDefault: false
+      version: 1
   sidecar:
     dashboards:
       enabled: true
