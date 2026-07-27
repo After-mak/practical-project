@@ -173,6 +173,10 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         memory=krr_recommended.get("memory") or current_spec.memory
     )
 
+    # 현재 배포된 컨테이너의 limits (설정 안 돼있으면 None) - 정책 엔진이 최종 권장값을
+    # 이 값 이하로 캡 걸어, Kubernetes admission 거부로 인한 조용한 무한 재시도를 방지합니다.
+    krr_current_limits = krr_data.get("current_limits") or {}
+
     # 2. Prometheus 최근 이력 메트릭 수집 (OOM, Restart, Avg Load)
     prom_raw = prom_client.get_workload_metrics(deployment_name, namespace)
     if prom_raw is not None:
@@ -204,7 +208,9 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         prom_metrics=prom_metrics,
         chronos_forecast=chronos_forecast,
         cpu_data_insufficient=cpu_data_insufficient,
-        mem_data_insufficient=mem_data_insufficient
+        mem_data_insufficient=mem_data_insufficient,
+        cpu_limit_str=krr_current_limits.get("cpu"),
+        memory_limit_str=krr_current_limits.get("memory")
     )
 
     # 5. 리소스 절감률 최종 수치 계산 (CPU / Memory)

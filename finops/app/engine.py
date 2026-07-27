@@ -83,7 +83,9 @@ class PolicyEngine:
         prom_metrics: Optional[PrometheusMetrics],
         chronos_forecast: Optional[ChronosForecast],
         cpu_data_insufficient: bool = False,
-        mem_data_insufficient: bool = False
+        mem_data_insufficient: bool = False,
+        cpu_limit_str: Optional[str] = None,
+        memory_limit_str: Optional[str] = None
     ) -> Tuple[str, str, RecommendationData, List[PolicyResult], float]:
         """
         KRR 추천 및 모니터링 메트릭을 기반으로 운영 정책을 적용하고 
@@ -96,7 +98,10 @@ class PolicyEngine:
         
         krr_cpu = parse_cpu(krr_res.cpu)
         krr_mem = parse_memory(krr_res.memory)
-        
+
+        cpu_limit = parse_cpu(cpu_limit_str) if cpu_limit_str else None
+        memory_limit = parse_memory(memory_limit_str) if memory_limit_str else None
+
         # 기본적으로는 KRR 추천값을 최종 추천값의 후보로 지정
         final_cpu = krr_cpu
         final_mem = krr_mem
@@ -291,7 +296,41 @@ class PolicyEngine:
         if overall_status == "FAIL":
             final_cpu = curr_cpu
             final_mem = curr_mem
-            
+
+        # 정책 8: 컨테이너 limits 초과 방지
+        # Kubernetes는 requests가 limits보다 큰 Deployment를 admission 단계에서 거부한다.
+        # 위 정책들이 계산한 final 값이 실제 배포된 limits를 넘으면, GitOps에 반영될 때 조용히
+        # 계속 실패(무한 재시도)하는 대신 여기서 limits 이하로 캡을 걸어 애초에 유효한 값만 내보낸다.
+        capped_by_limits = False
+        if cpu_limit is not None and cpu_limit > 0 and final_cpu > cpu_limit:
+            final_cpu = cpu_limit
+            capped_by_limits = True
+        if memory_limit is not None and memory_limit > 0 and final_mem > memory_limit:
+            final_mem = memory_limit
+            capped_by_limits = True
+
+        if capped_by_limits:
+            policy_evals.append(PolicyResult(
+                rule_id="RULE_08",
+                name="컨테이너 limits 초과 방지",
+                status="WARN",
+                description="정책 검증을 거친 권장값이 배포된 컨테이너의 limits를 초과하여, Kubernetes가 반영을 거부하지 않도록 limits 이하로 자동 조정했습니다."
+            ))
+        elif cpu_limit is not None or memory_limit is not None:
+            policy_evals.append(PolicyResult(
+                rule_id="RULE_08",
+                name="컨테이너 limits 초과 방지",
+                status="PASS",
+                description="최종 권장값이 컨테이너 limits 이내입니다."
+            ))
+        else:
+            policy_evals.append(PolicyResult(
+                rule_id="RULE_08",
+                name="컨테이너 limits 초과 방지",
+                status="WARN",
+                description="배포된 컨테이너의 limits 정보를 확인하지 못해 초과 여부를 검증하지 못했습니다."
+            ))
+
         recommendations = RecommendationData(
             current=current_res,
             krr=krr_res,
