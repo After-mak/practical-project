@@ -356,6 +356,8 @@ spec:
         storegateway:
           enabled: true
           replicaCount: 1
+          persistence:
+            storageClass: "ebs-gp3"
           serviceAccount:
             create: true
             name: thanos-store
