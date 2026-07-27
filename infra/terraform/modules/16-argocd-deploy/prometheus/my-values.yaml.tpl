@@ -45,8 +45,9 @@ prometheus:
     retention: 2d
     thanos:
       objectStorageConfig:
-        name: thanos-objstore-config
-        key: objstore.yml
+        existingSecret:
+          name: thanos-objstore-config
+          key: objstore.yml
 grafana:
   additionalDataSources:
     - name: Thanos
