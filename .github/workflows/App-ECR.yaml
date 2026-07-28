@@ -60,7 +60,7 @@ jobs:
         echo "=== [${{ matrix.service.name }}] 빌드 시작 (태그: $IMAGE_TAG) ==="
 
         # ECR 주소와 태그를 매핑하여 빌드
-        docker build \
+        docker build --no-cache \
           -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
           -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
    
