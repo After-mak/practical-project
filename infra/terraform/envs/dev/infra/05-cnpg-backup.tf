@@ -1,18 +1,4 @@
 ############################################
-# 1. CNPG Backup S3 Bucket
-############################################
-resource "aws_s3_bucket" "cnpg_backup" {
-  bucket        = "project03-cnpg-backup-${random_string.suffix.result}"
-  force_destroy = true
-}
-
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
-
-############################################
 # 2. IAM Policy for S3 Access
 ############################################
 resource "aws_iam_policy" "cnpg_s3_policy" {
@@ -31,8 +17,8 @@ resource "aws_iam_policy" "cnpg_s3_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.cnpg_backup.arn,
-          "${aws_s3_bucket.cnpg_backup.arn}/*"
+          "arn:aws:s3:::project03-cnpg-backup-07l03u",
+          "arn:aws:s3:::project03-cnpg-backup-07l03u/*"
         ]
       }
     ]

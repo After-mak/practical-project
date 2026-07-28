@@ -96,3 +96,20 @@ output "thanos_s3_bucket_name" {
   value       = aws_s3_bucket.thanos_metrics.id
   description = "Thanos metrics S3 bucket name"
 }
+
+# ----------------------------------------------------------------
+# CNPG 백업 보존용 S3 버킷
+# ----------------------------------------------------------------
+resource "aws_s3_bucket" "cnpg_backup_permanent" {
+  bucket        = "project03-cnpg-backup-07l03u"
+  force_destroy = false # 백업 데이터 보호를 위해 파괴 방지
+  
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+output "cnpg_s3_bucket_name" {
+  value       = aws_s3_bucket.cnpg_backup_permanent.id
+  description = "CNPG backup S3 bucket name"
+}
