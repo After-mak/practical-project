@@ -190,7 +190,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <addResources>true</addResources>
-                    <mainClass>anthos.samples.bankofanthos.transactionhistory.TransactionHistoryApplication</mainClass>
+                    <start-class>anthos.samples.bankofanthos.transactionhistory.TransactionHistoryApplication</start-class>
                 </configuration>
             </plugin>
             <plugin>

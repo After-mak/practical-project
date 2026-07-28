@@ -190,6 +190,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <addResources>true</addResources>
+                    <start-class>anthos.samples.bankofanthos.balancereader.BalanceReaderApplication</start-class>
                 </configuration>
             </plugin>
             <plugin>
