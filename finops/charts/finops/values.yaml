@@ -18,6 +18,11 @@ env:
   autoSendTelegram: "true"
   # "text"(기본, 로컬 개발용) 또는 "json"(구조화 로그, CloudWatch/Datadog 파싱용)
   logFormat: "json"
+  # KRR Logs 전용 CNPG DB 설정
+  dbHost: "krr-data-db-rw.finops.svc.cluster.local"
+  dbPort: "5432"
+  dbName: "krr_logs_db"
+  dbSecretName: "krr-data-db-app"
 
 # 텔레그램 봇 토큰/챗ID는 여기에 평문으로 넣지 않습니다.
 # 아래 둘 중 하나를 사용하세요:

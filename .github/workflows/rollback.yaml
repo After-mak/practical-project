@@ -7,6 +7,10 @@ on:
         description: '롤백 사유'
         required: false
         default: 'ChatOps Triggered Rollback'
+      target_branch:
+        description: '실제 GitOps 저장소의 롤백 대상 브랜치'
+        required: false
+        default: 'main'
   repository_dispatch: # 텔레그램 봇 웹훅 호출
     types: [telegram-rollback]
 
@@ -17,6 +21,8 @@ jobs:
       - name: Checkout Helm Chart Repository
         uses: actions/checkout@v4
         with:
+          repository: After-mak/mak-argocd-deploy
+          ref: ${{ github.event.inputs.target_branch || 'main' }}
           token: ${{ secrets.GITOPS_TOKEN }}
           fetch-depth: 0 # 이전 커밋 이력을 가져오기 위해 0으로 설정
 
@@ -44,8 +50,7 @@ jobs:
 
       - name: Push Reverted Commit 
         run: |
-         # repository_dispatch인 경우 payload의 target_branch를 사용하고, 없으면 main 사용
-          TARGET_BRANCH="${{ github.event.client_payload.target_branch }}"
+          TARGET_BRANCH="${{ github.event.inputs.target_branch || github.event.client_payload.target_branch }}"
           if [ -z "$TARGET_BRANCH" ]; then
             TARGET_BRANCH="main"
           fi

@@ -102,9 +102,14 @@ output:
 	cd $(TF_DEV_INFRA_DIR) && terraform output
 
 destroy:
+	@echo "argocd에 배포되어있는 target group 및 HTTP route 삭제 "
+	kubectl delete applications --all -n argocd
+	@sleep 30
 	@echo "⚠️  주의: AWS 인프라 자원 삭제중..."
 	@echo "▶ [1/2단계] Kubernetes 내부 애플리케이션(ArgoCD 등) 삭제 중..."
-	cd $(TF_DEV_K8S_DIR) && terraform destroy --auto-approve 
+	cd $(TF_DEV_K8S_DIR) && terraform destroy "-target=kubectl_manifest.gateway" "-target=kubectl_manifest.gatewayclass" "-target=kubectl_manifest.lb_config" -auto-approve
+	@sleep 180
+	cd $(TF_DEV_K8S_DIR) && terraform destroy --auto-approve
 	@echo "▶ [2/2단계] AWS 기본 인프라(EKS, VPC 등) 삭제 중..."
 	cd $(TF_DEV_INFRA_DIR) && terraform destroy --auto-approve 
 

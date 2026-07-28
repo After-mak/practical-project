@@ -110,32 +110,7 @@ spec:
 YAML
 }
 
-resource "kubectl_manifest" "postgres_app" {
-  yaml_body = <<YAML
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: postgres-app
-  namespace: argocd
-  finalizers:
-  - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
-    targetRevision: main
-    path: charts/postgres
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: default
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
-YAML
-}
+
 
 resource "kubectl_manifest" "sample_fastapi" {
   yaml_body = <<YAML
@@ -159,6 +134,19 @@ spec:
         redis:
           host: ${var.sample_fastapi_redis_host}
           port: ${var.sample_fastapi_redis_port}
+        worker:
+          autoscaling:
+            minReplicaCount: 1
+            maxReplicaCount: 15
+            pollingInterval: 5
+            cooldownPeriod: 60
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
   destination:
     server: https://kubernetes.default.svc
     namespace: sample-fastapi
@@ -287,6 +275,34 @@ spec:
 YAML
 }
 
+# ----------------------------------------------------------------
+# FinOps KRR Logs 전용 CNPG Database 클러스터 배포 (GitOps 연동)
+# ----------------------------------------------------------------
+resource "kubectl_manifest" "krr_data_db" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: krr-data-db
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/krr-data-db
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: finops
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
 resource "kubectl_manifest" "karpenter_resources" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1
@@ -309,5 +325,96 @@ spec:
       selfHeal: true
     syncOptions:
     - ServerSideApply=true
+YAML
+}
+
+resource "kubectl_manifest" "tg_gateway" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tg-gateway
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/tg-gateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
+resource "kubectl_manifest" "thanos" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: thanos
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: thanos
+    targetRevision: 15.7.0
+    helm:
+      values: |
+        image:
+          registry: quay.io
+          repository: thanos/thanos
+          tag: v0.35.1
+        query:
+          enabled: true
+          replicaCount: 1
+          # Prometheus Sidecar와 Thanos Store를 연결
+          stores:
+            - "prometheus-operated.prometheus.svc.cluster.local:10901"
+          serviceAccount:
+            create: true
+            name: thanos-query
+            annotations:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
+        storegateway:
+          enabled: true
+          replicaCount: 1
+          persistence:
+            storageClass: "ebs-gp3"
+          serviceAccount:
+            create: true
+            name: thanos-store
+            annotations:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
+        objstoreConfig: |-
+          type: s3
+          config:
+            bucket: project03-thanos-metrics-83154bf5
+            endpoint: s3.ap-northeast-2.amazonaws.com
+            region: ap-northeast-2
+        compactor:
+          enabled: false
+        bucketweb:
+          enabled: false
+        receive:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
 YAML
 }

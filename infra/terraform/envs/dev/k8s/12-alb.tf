@@ -25,6 +25,8 @@ resource "kubectl_manifest" "gateway" {
   depends_on = [kubectl_manifest.gatewayclass, kubectl_manifest.lb_config]
 }
 
+# 서비스별 HTTPRoute는 mak-argocd-deploy의 Helm chart가 Argo CD로 관리합니다.
+# 동일 오브젝트를 Terraform에 선언하면 Argo CD prune/selfHeal과 소유권이 충돌할 수 있습니다.
 
 # ALB 대기 (이 다음 route53을 달아야되기 때문에 pod에서 요청 넘기고 실제 alb가 생성되기까지 기다리기) 
 # The Argo CD application module depends on this guard. During destroy that

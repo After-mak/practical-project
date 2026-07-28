@@ -19,7 +19,7 @@ resource "random_id" "bucket_suffix" {
 # S3 버킷 생성 - 상태 파일(.tfstate) 저장용
 resource "aws_s3_bucket" "tfstate_bucket" {
   # 고유한 이름을 보장하기 위해 뒤에 랜덤 16진수 접미사를 붙입니다.
-  bucket        = "tfstate-bucket-95ada58e"
+  bucket        = "tfstate-bucket-${random_id.bucket_suffix.hex}"
   force_destroy = false # 실수로 상태 파일이 담긴 버킷이 통째로 날아가는 것을 방지
 
   lifecycle {
@@ -52,4 +52,47 @@ resource "aws_s3_bucket_public_access_block" "tfstate" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# ----------------------------------------------------------------
+# Thanos 메트릭 장기 보관용 S3 버킷
+# ----------------------------------------------------------------
+
+resource "random_id" "thanos_bucket_suffix" {
+  byte_length = 4
+}
+
+resource "aws_s3_bucket" "thanos_metrics" {
+  bucket        = "project03-thanos-metrics-${random_id.thanos_bucket_suffix.hex}"
+  force_destroy = true # 메트릭은 인프라 삭제 시 지워져도 무방하므로 true로 설정
+}
+
+# 30일 경과 후 자동 삭제 (수명 주기 규칙)
+resource "aws_s3_bucket_lifecycle_configuration" "thanos_metrics_lifecycle" {
+  bucket = aws_s3_bucket.thanos_metrics.id
+
+  rule {
+    id     = "delete-after-30-days"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = 30
+    }
+  }
+}
+
+# Thanos 버킷 퍼블릭 접근 전면 차단
+resource "aws_s3_bucket_public_access_block" "thanos_metrics_public_block" {
+  bucket                  = aws_s3_bucket.thanos_metrics.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+output "thanos_s3_bucket_name" {
+  value       = aws_s3_bucket.thanos_metrics.id
+  description = "Thanos metrics S3 bucket name"
 }
