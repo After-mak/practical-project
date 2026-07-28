@@ -19,6 +19,13 @@ data "aws_ecr_repository" "finops_analyzer" {
   name = "finops-analyzer"
 }
 
+# enable_krr_demo_seed가 false면 이 ECR repo가 아직 없어도(init 레이어 미적용) apply가
+# 막히지 않도록 count로 조건부 조회합니다.
+data "aws_ecr_repository" "krr_demo_seed" {
+  count = var.enable_krr_demo_seed ? 1 : 0
+  name  = "krr-demo-seed"
+}
+
 # Infra와 Kubernetes는 Terraform State를 분리하여 관리하므로,
 # Infra State에서 ElastiCache 연결 정보를 읽어 Argo CD Helm values에 자동 주입합니다.
 data "terraform_remote_state" "infra" {
@@ -43,8 +50,11 @@ module "argocd_deploy" {
   sample_fastapi_redis_host        = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
   sample_fastapi_redis_port        = data.terraform_remote_state.infra.outputs.redis_port
 
-  jwt_private_key                  = var.jwt_private_key
-  jwt_public_key                   = var.jwt_public_key
+  jwt_private_key = var.jwt_private_key
+  jwt_public_key  = var.jwt_public_key
+
+  enable_krr_demo_seed = var.enable_krr_demo_seed
+  krr_demo_seed_image  = var.enable_krr_demo_seed ? "${data.aws_ecr_repository.krr_demo_seed[0].repository_url}:latest" : ""
 
   # Create: Gateway -> cleanup guard -> Argo CD applications.
   # Destroy: Argo CD applications -> cleanup wait -> Gateway.

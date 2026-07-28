@@ -31,12 +31,24 @@ output "finops_analyzer_ecr_repository_url" {
 
 
 module "tg_gateway_ecr" {
-  source                = "../modules/09-ecr"
-  repository_name       = "tg-gateway"
-  image_tag_mutability  = "IMMUTABLE"
+  source               = "../modules/09-ecr"
+  repository_name      = "tg-gateway"
+  image_tag_mutability = "IMMUTABLE"
 }
 
 output "tg_gateway_ecr_repository_url" {
   description = "TG Gateway ECR Repository URL"
   value       = module.tg_gateway_ecr.repository_url
+}
+
+module "krr_demo_seed_ecr" {
+  source = "../modules/09-ecr"
+
+  repository_name      = "krr-demo-seed"
+  image_tag_mutability = "IMMUTABLE"
+}
+
+output "krr_demo_seed_ecr_repository_url" {
+  description = "KRR 더미 이력 시딩용 initContainer 이미지 ECR Repository URL"
+  value       = module.krr_demo_seed_ecr.repository_url
 }

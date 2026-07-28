@@ -48,6 +48,26 @@ prometheus:
         existingSecret:
           name: thanos-objstore-config
           key: objstore.yml
+%{ if enable_krr_demo_seed ~}
+    # KRR 더미 이력 데이터를 Prometheus가 뜨기 전에 미리 채워 넣는 initContainer입니다.
+    # destroy/apply를 반복하는 dev 환경 특성상 "데이터를 보존"하는 대신, Prometheus가
+    # 새로 뜰 때마다 그 시점의 실제 파드 이름을 조회해서 매번 새로 만드는 방식입니다.
+    # (finops/scripts/generate_krr_dummy_history.py, seed_init_entrypoint.sh 참고)
+    # 볼륨 이름은 Prometheus Operator가 자동 생성하는 데이터 볼륨(prometheus-<프로메테우스
+    # 리소스 이름>-db)과 반드시 일치해야 합니다 - 현재 배포 기준 실측값이며, Helm release
+    # 이름이 바뀌면 같이 바뀌므로 dev-k8s apply 후 실제 이름과 다르면 여기도 갱신 필요합니다.
+    initContainers:
+      - name: krr-demo-seed
+        image: "${krr_demo_seed_image}"
+        env:
+          - name: SEED_DAYS
+            value: "2"
+          - name: SCENARIOS_NS
+            value: "sample-fastapi"
+        volumeMounts:
+          - name: prometheus-prometheus-stack-kube-prom-prometheus-db
+            mountPath: /prometheus
+%{ endif ~}
 grafana:
   additionalDataSources:
     - name: Thanos
