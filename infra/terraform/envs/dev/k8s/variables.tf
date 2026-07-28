@@ -22,12 +22,24 @@ variable "grafana_admin_password" {
 
 variable "jwt_private_key" {
   description = "jwt_private_key"
-  type      = string
-  sensitive = true
+  type        = string
+  sensitive   = true
 }
 
 variable "jwt_public_key" {
   description = "jwt_public_key"
-  type      = string
-  sensitive = true
+  type        = string
+  sensitive   = true
+}
+
+variable "enable_krr_demo_seed" {
+  description = "Prometheus 기동 전 KRR 시연용 더미 이력 데이터를 채우는 initContainer 활성화 여부 (dev/데모 환경 전용, 기본 비활성)"
+  type        = bool
+  default     = false
+}
+
+variable "krr_demo_seed_image" {
+  description = "KRR 더미 이력 시딩 initContainer 이미지 (ECR: krr-demo-seed). enable_krr_demo_seed=true일 때만 사용"
+  type        = string
+  default     = ""
 }

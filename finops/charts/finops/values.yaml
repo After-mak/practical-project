@@ -13,7 +13,11 @@ service:
 env:
   # Set mock mode to false for real KRR execution
   mockIntegration: "false"
-  prometheusUrl: "http://prometheus-stack-kube-prom-prometheus.prometheus.svc.cluster.local:9090"
+  # Prometheus 로컬 retention이 2d로 줄고 Thanos(S3)가 장기 이력을 담당하게 되면서,
+  # KRR의 기본 lookback(336h=14일)이 로컬 Prometheus만 보면 대부분 비어버립니다.
+  # Thanos Query가 로컬 최근분(사이드카) + S3 과거분(Store Gateway)을 동일 PromQL API로
+  # 합쳐서 보여주므로, KRR/Prometheus 조회를 전부 Thanos Query로 돌려 이력 손실을 막습니다.
+  prometheusUrl: "http://thanos-query.prometheus.svc.cluster.local:9090"
   chronosUrl: "http://chronos-model.monitoring.svc.cluster.local:8000"
   autoSendTelegram: "true"
   # "text"(기본, 로컬 개발용) 또는 "json"(구조화 로그, CloudWatch/Datadog 파싱용)
@@ -30,7 +34,10 @@ env:
 #   2) values-secret.yaml.example을 values-secret.yaml로 복사해 실제 값을 채운 뒤
 #      helm install -f values.yaml -f values-secret.yaml 로 배포 (values-secret.yaml은 .gitignore 처리됨)
 telegram:
-  existingSecret: ""
+  # krr-telegram-secret: Terraform이 AWS Secrets Manager에서 읽어와 자동 생성하는 Secret
+  # (envs/dev/k8s/13-krr-telegram-secret.tf 참고). existingSecret으로 지정해두면 이 차트가
+  # 자체 Secret을 만들지 않아 ArgoCD selfHeal이 값을 되돌리는 문제가 없어집니다.
+  existingSecret: "krr-telegram-secret"
   botToken: ""
   chatId: ""
 

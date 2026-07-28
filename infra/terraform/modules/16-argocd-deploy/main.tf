@@ -21,7 +21,11 @@ spec:
     targetRevision: 87.10.1
     helm:
       values: |
-        ${indent(8, templatefile("${path.module}/prometheus/my-values.yaml.tpl", { grafana_admin_password = var.grafana_admin_password }))}
+        ${indent(8, templatefile("${path.module}/prometheus/my-values.yaml.tpl", {
+  grafana_admin_password = var.grafana_admin_password
+  enable_krr_demo_seed   = var.enable_krr_demo_seed
+  krr_demo_seed_image    = var.krr_demo_seed_image
+}))}
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
