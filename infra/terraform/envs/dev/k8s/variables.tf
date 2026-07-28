@@ -43,15 +43,3 @@ variable "krr_demo_seed_image" {
   type        = string
   default     = ""
 }
-
-variable "enable_krr_telegram_secret" {
-  description = <<-EOT
-    KRR(finops) 전용 텔레그램 봇 토큰/챗ID를 AWS Secrets Manager에서 읽어와
-    krr-telegram-secret이라는 K8s Secret으로 자동 생성할지 여부.
-    AWS Secrets Manager에 project03/krr-telegram (JSON: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)를
-    미리 만들어둔 사람만 true로 켜세요 - 없는 상태에서 켜면 전체 apply가 실패합니다(다른 팀원
-    영향 가능). 기본 false.
-  EOT
-  type        = bool
-  default     = false
-}
