@@ -9,6 +9,18 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     
+    strategy:
+      matrix:
+        service:
+          - name: frontend
+            path: ./app-test/frontend
+            repo: mak_frontend_ecr
+          - name: userservice
+            path: ./app-test/accounts/userservice
+            repo: mak_userservice_ecr
+          - name: balancereader
+            path: ./app-test/ledger/balancereader
+            repo: mak_balancereader_ecr
     steps:
     # 1. 소스코드 체크아웃
     - name: Checkout Source Code
@@ -29,14 +41,14 @@ jobs:
 
     # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
     - name: Build, tag, and push image to Amazon ECR
-      working-directory: ./app-test
+      working-directory: ${{ matrix.service.path }}
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        ECR_REPOSITORY: "mak_ecr" # AWS ECR에 생성하신 레포지토리 이름
+        ECR_REPOSITORY: ${{ matrix.service.repo }}
       run: |
         # 소수점 태그(1.0)
         IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
-        echo "빌드할 이미지 태그: $IMAGE_TAG"
+        echo "=== [${{ matrix.service.name }}] 빌드 시작 (태그: $IMAGE_TAG) ==="
 
         # ECR 주소와 태그를 매핑하여 빌드
         docker build \

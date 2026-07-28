@@ -5,6 +5,55 @@ module "ecr" {
   image_tag_mutability = "MUTABLE" # 개발 환경이므로 덮어쓰기 허용
 }
 
+output "ecr" {
+  description = "Mak ECR Repository URL"
+  value       = module.ecr.repository_url
+}
+
+module "ecr_frontend" {
+  source               = "../modules/09-ecr" # 본인의 ECR 모듈 경로에 맞게 수정
+  repository_name      = "mak_frontend_ecr"
+  image_tag_mutability = "MUTABLE"
+}
+
+output "ecr_frontend" {
+  description = "Frontend ECR Repository URL"
+  value       = module.ecr_frontend.repository_url
+}
+
+module "ecr_userservice" {
+  source               = "../modules/09-ecr"
+  repository_name      = "mak_userservice_ecr"
+  image_tag_mutability = "MUTABLE"
+}
+
+output "ecr_userservice" {
+  description = "UserService ECR Repository URL"
+  value       = module.ecr_userservice.repository_url
+}
+
+module "ecr_balancereader" {
+  source               = "../modules/09-ecr"
+  repository_name      = "mak_balancereader_ecr"
+  image_tag_mutability = "MUTABLE"
+}
+
+output "ecr_balancereader" {
+  description = "BalanceReader ECR Repository URL"
+  value       = module.ecr_balancereader.repository_url
+}
+
+module "ecr_ledgerwriter" {
+  source               = "../modules/09-ecr"
+  repository_name      = "mak_ledgerwriter_ecr"
+  image_tag_mutability = "MUTABLE"
+}
+
+output "ecr_ledgerwriter" {
+  description = "LedgerWriter ECR Repository URL"
+  value       = module.ecr_ledgerwriter.repository_url
+}
+
 module "sample_fastapi_ecr" {
   source = "../modules/09-ecr"
 
