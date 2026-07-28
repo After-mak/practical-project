@@ -34,7 +34,10 @@ env:
 #   2) values-secret.yaml.example을 values-secret.yaml로 복사해 실제 값을 채운 뒤
 #      helm install -f values.yaml -f values-secret.yaml 로 배포 (values-secret.yaml은 .gitignore 처리됨)
 telegram:
-  existingSecret: ""
+  # krr-telegram-secret: Terraform이 AWS Secrets Manager에서 읽어와 자동 생성하는 Secret
+  # (envs/dev/k8s/13-krr-telegram-secret.tf 참고). existingSecret으로 지정해두면 이 차트가
+  # 자체 Secret을 만들지 않아 ArgoCD selfHeal이 값을 되돌리는 문제가 없어집니다.
+  existingSecret: "krr-telegram-secret"
   botToken: ""
   chatId: ""
 
