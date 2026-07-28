@@ -17,10 +17,19 @@ jobs:
             repo: mak_frontend_ecr
           - name: userservice
             path: ./app-test/accounts/userservice
-            repo: mak_userservice_ecr
+            repo: mak_userservice_ecr 
+          - name: contacts
+            path: ./app-test/accounts/contacts
+            repo: mak_contacts_ecr
           - name: balancereader
             path: ./app-test/ledger/balancereader
             repo: mak_balancereader_ecr
+          - name: ledgerwriter
+            path: ./app-test/ledger/ledgerwriter 
+            repo: mak_ledgerwriter_ecr
+          - name: transactionhistory
+            path: ./app-test/ledger/transactionhistory
+            repo: mak_transactionhistory_ecr
     steps:
     # 1. 소스코드 체크아웃
     - name: Checkout Source Code

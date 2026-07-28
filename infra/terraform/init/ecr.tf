@@ -32,6 +32,17 @@ output "ecr_userservice" {
   value       = module.ecr_userservice.repository_url
 }
 
+module "ecr_contacts" {
+  source               = "../modules/09-ecr"
+  repository_name      = "mak_contacts_ecr"
+  image_tag_mutability = "MUTABLE"
+}
+
+output "ecr_contacts" {
+  description = "Contacts ECR Repository URL"
+  value       = module.ecr_contacts.repository_url
+}
+
 module "ecr_balancereader" {
   source               = "../modules/09-ecr"
   repository_name      = "mak_balancereader_ecr"
@@ -52,6 +63,17 @@ module "ecr_ledgerwriter" {
 output "ecr_ledgerwriter" {
   description = "LedgerWriter ECR Repository URL"
   value       = module.ecr_ledgerwriter.repository_url
+}
+
+module "ecr_transactionhistory" {
+  source               = "../modules/09-ecr"
+  repository_name      = "mak_transactionhistory_ecr"
+  image_tag_mutability = "MUTABLE"
+}
+
+output "ecr_transactionhistory" {
+  description = "TransactionHistory ECR Repository URL"
+  value       = module.ecr_transactionhistory.repository_url
 }
 
 module "sample_fastapi_ecr" {
