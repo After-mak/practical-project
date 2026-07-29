@@ -290,13 +290,11 @@ spec:
     path: charts/cnpg-db
   destination:
     server: https://kubernetes.default.svc
-    namespace: backend
+    namespace: default
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
 YAML
 }
 
@@ -368,7 +366,7 @@ spec:
     path: charts/tg-gateway
   destination:
     server: https://kubernetes.default.svc
-    namespace: frontend
+    namespace: default
   syncPolicy:
     automated:
       prune: true
