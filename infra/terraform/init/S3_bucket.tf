@@ -64,7 +64,13 @@ resource "random_id" "thanos_bucket_suffix" {
 
 resource "aws_s3_bucket" "thanos_metrics" {
   bucket        = "project03-thanos-metrics-${random_id.thanos_bucket_suffix.hex}"
-  force_destroy = true # 메트릭은 인프라 삭제 시 지워져도 무방하므로 true로 설정
+  force_destroy = false
+
+  # dev EKS를 반복해서 destroy/apply하더라도 KRR·Chronos 과거 메트릭은 보존합니다.
+  # 버킷을 정말 폐기할 때만 이 보호를 명시적으로 제거합니다.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # 30일 경과 후 자동 삭제 (수명 주기 규칙)
@@ -103,7 +109,7 @@ output "thanos_s3_bucket_name" {
 resource "aws_s3_bucket" "cnpg_backup_permanent" {
   bucket        = "project03-cnpg-backup-07l03u"
   force_destroy = false # 백업 데이터 보호를 위해 파괴 방지
-  
+
   lifecycle {
     prevent_destroy = true
   }

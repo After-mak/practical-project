@@ -34,7 +34,7 @@ SCENARIOS = {
     },
     "sample-worker": {
         "container": "worker",
-        "cpu_avg_cores": 0.07,    # 현재 request 100m 대비 실사용 평균 ~70m -> 이미 잘 맞춰진 시나리오
+        "cpu_avg_cores": 0.07,    # 현재 request 361m 대비 실사용 평균 ~70m -> 과다 프로비저닝 시나리오
         "cpu_jitter": 0.15,
         "mem_avg_mib": 118,       # 현재 request 128Mi 대비 실사용 평균 ~118Mi
         "mem_jitter_mib": 5,
@@ -42,7 +42,29 @@ SCENARIOS = {
 }
 
 
-def generate_series(scenario: dict, namespace: str, pod: str, days: int, seed: int):
+def chronos_periodic_cpu(timestamp: int, rng: random.Random) -> float:
+    """20분 주기의 정상→상승→급증→회복 CPU 패턴을 만듭니다."""
+
+    minute = (timestamp % 1200) / 60
+    if minute < 8:
+        base = 0.08
+    elif minute < 12:
+        base = 0.12 + ((minute - 8) / 4) * 0.43
+    elif minute < 16:
+        base = 1.2
+    else:
+        base = 0.4 - ((minute - 16) / 4) * 0.3
+    return max(0.01, base * rng.uniform(0.95, 1.05))
+
+
+def generate_series(
+    scenario: dict,
+    namespace: str,
+    pod: str,
+    days: int,
+    seed: int,
+    profile: str = "krr-rightsizing",
+):
     """(cpu_lines, mem_lines) 튜플을 리턴합니다. CPU는 누적 카운터, 메모리는 게이지입니다."""
     rng = random.Random(seed)
     container = scenario["container"]
@@ -57,11 +79,16 @@ def generate_series(scenario: dict, namespace: str, pod: str, days: int, seed: i
     cumulative_cpu_seconds = 0.0
 
     for i, ts in enumerate(timestamps):
-        # 하루 주기(diurnal) 패턴 + 랜덤 노이즈로 그럴듯한 변동을 만듭니다.
-        hour_of_day = (ts % 86400) / 3600.0
-        diurnal = 0.85 + 0.3 * math.sin((hour_of_day - 9) / 24.0 * 2 * math.pi)
-        noise = rng.uniform(1 - scenario["cpu_jitter"], 1 + scenario["cpu_jitter"])
-        instantaneous_cpu = max(0.0005, scenario["cpu_avg_cores"] * diurnal * noise)
+        if profile == "chronos-periodic-spike":
+            instantaneous_cpu = chronos_periodic_cpu(ts, rng)
+        else:
+            # 하루 주기(diurnal) 패턴 + 랜덤 노이즈로 그럴듯한 변동을 만듭니다.
+            hour_of_day = (ts % 86400) / 3600.0
+            diurnal = 0.85 + 0.3 * math.sin((hour_of_day - 9) / 24.0 * 2 * math.pi)
+            noise = rng.uniform(1 - scenario["cpu_jitter"], 1 + scenario["cpu_jitter"])
+            instantaneous_cpu = max(
+                0.0005, scenario["cpu_avg_cores"] * diurnal * noise
+            )
         cumulative_cpu_seconds += instantaneous_cpu * STEP_SECONDS
         cpu_lines.append(
             f"container_cpu_usage_seconds_total{{{labels_common}}} {cumulative_cpu_seconds:.6f} {ts}"
@@ -95,14 +122,28 @@ def main():
     parser.add_argument("--pod", required=True, help="현재 실제로 떠있는 pod 이름 (kubectl get pods로 확인)")
     parser.add_argument("--days", type=int, default=7, help="생성할 과거 일수 (기본 7일, Prometheus retention과 일치)")
     parser.add_argument("--seed", type=int, default=42, help="재현 가능한 랜덤 시드 (시연 때마다 같은 값이 나오도록)")
+    parser.add_argument(
+        "--profile",
+        choices=("krr-rightsizing", "chronos-periodic-spike"),
+        default="krr-rightsizing",
+        help="KRR 라이트사이징 또는 Chronos 반복 Spike 시나리오",
+    )
     parser.add_argument("--output", required=True, help="생성된 OpenMetrics 파일 경로")
     args = parser.parse_args()
 
     scenario = SCENARIOS[args.deployment]
-    cpu_lines, mem_lines = generate_series(scenario, args.namespace, args.pod, args.days, args.seed)
+    cpu_lines, mem_lines = generate_series(
+        scenario,
+        args.namespace,
+        args.pod,
+        args.days,
+        args.seed,
+        args.profile,
+    )
     write_openmetrics(args.output, cpu_lines, mem_lines)
     print(f"[generate_krr_dummy_history] {args.output} 생성 완료 "
-          f"({len(cpu_lines)} CPU 샘플, {len(mem_lines)} 메모리 샘플, {args.days}일치)")
+          f"({len(cpu_lines)} CPU 샘플, {len(mem_lines)} 메모리 샘플, "
+          f"{args.days}일치, profile={args.profile})")
 
 
 if __name__ == "__main__":

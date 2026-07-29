@@ -150,6 +150,38 @@ spec:
 YAML
 }
 
+resource "kubectl_manifest" "chronos_model" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chronos-model
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/chronos
+    helm:
+      values: |
+        image:
+          repository: ${var.chronos_model_image_repository}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - SkipDryRunOnMissingResource=true
+YAML
+}
+
 resource "kubectl_manifest" "grafana_finops_dashboard" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1

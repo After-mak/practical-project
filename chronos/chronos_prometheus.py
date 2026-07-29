@@ -1,96 +1,417 @@
-import requests
-import torch
+"""Prometheus/Thanos 시계열을 Chronos 모델로 예측하는 핵심 로직입니다.
+
+이 모듈은 HTTP 서버와 분리되어 있어 CLI, 단위 테스트, Kubernetes 서비스가 같은
+예측 구현을 재사용할 수 있습니다. 무거운 torch/chronos 의존성은 실제 예측 시점에
+지연 로딩하므로 설정·API 테스트는 모델 설치 없이도 실행할 수 있습니다.
+"""
+
+from __future__ import annotations
+
 import json
 import math
 import os
+import re
 import subprocess
+import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from chronos import ChronosPipeline
-
-PROM_URL = os.environ.get("PROM_URL", "http://localhost:9090")
-TARGET_DEPLOYMENT = os.environ.get("CHRONOS_TARGET_DEPLOYMENT", "test-overprovisioned")
-TARGET_NAMESPACE = os.environ.get("CHRONOS_TARGET_NAMESPACE", "default")
-POD_PATTERN = os.environ.get("CHRONOS_POD_PATTERN", TARGET_DEPLOYMENT + ".*")
-THRESHOLD = float(os.environ.get("CHRONOS_THRESHOLD", "0.3"))
-CAPACITY_PER_REPLICA = float(os.environ.get("CHRONOS_CAPACITY_PER_REPLICA", "0.5"))
-LOOKBACK_HOURS = float(os.environ.get("CHRONOS_LOOKBACK_HOURS", "2"))
-FORECAST_OUTPUT = os.environ.get("FORECAST_FILE", os.path.expanduser("~/k8s-manifest/forecast_result.json"))
-
-QUERY = 'sum(rate(container_cpu_usage_seconds_total{pod=~"' + POD_PATTERN + '"}[5m])) by (pod)'
+from pathlib import Path
+from typing import Callable, Protocol, Sequence
 
 
-def get_current_replicas():
+VALID_MODES = {"disabled", "shadow", "active"}
+
+
+def _positive_float(name: str, default: float) -> float:
+    value = float(os.environ.get(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
+def _positive_int(name: str, default: int) -> int:
+    value = int(os.environ.get(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return value
+
+
+@dataclass(frozen=True)
+class ForecastSettings:
+    prometheus_url: str = "http://localhost:9090"
+    target_deployment: str = "sample-worker"
+    target_namespace: str = "sample-fastapi"
+    pod_pattern: str = "sample-worker-.*"
+    container_name: str = "worker"
+    mode: str = "shadow"
+    threshold_cores: float = 0.3
+    capacity_per_replica_cores: float = 0.5
+    lookback_hours: float = 2.0
+    prediction_length: int = 12
+    step_seconds: int = 60
+    min_replicas: int = 1
+    max_replicas: int = 3
+    forecast_interval_seconds: int = 60
+    forecast_ttl_seconds: int = 120
+    request_timeout_seconds: float = 10.0
+    model_id: str = "amazon/chronos-t5-small"
+    fake_replicas: int | None = None
+    forecast_output: str = ""
+
+    @classmethod
+    def from_environment(
+        cls,
+        *,
+        prometheus_url_default: str = (
+            "http://thanos-query.prometheus.svc.cluster.local:9090"
+        ),
+        deployment_default: str = "sample-worker",
+        namespace_default: str = "sample-fastapi",
+        container_default: str = "worker",
+        pod_pattern_separator: str = "-",
+        forecast_output_default: str = "",
+    ) -> "ForecastSettings":
+        deployment = os.environ.get(
+            "CHRONOS_TARGET_DEPLOYMENT", deployment_default
+        )
+        mode = os.environ.get("CHRONOS_MODE", "shadow").strip().lower()
+        fake_value = os.environ.get("CHRONOS_FAKE_REPLICAS", "").strip()
+        settings = cls(
+            prometheus_url=os.environ.get(
+                "PROM_URL", prometheus_url_default
+            ).rstrip("/"),
+            target_deployment=deployment,
+            target_namespace=os.environ.get(
+                "CHRONOS_TARGET_NAMESPACE", namespace_default
+            ),
+            pod_pattern=os.environ.get(
+                "CHRONOS_POD_PATTERN",
+                f"{re.escape(deployment)}{pod_pattern_separator}.*",
+            ),
+            container_name=os.environ.get(
+                "CHRONOS_CONTAINER", container_default
+            ),
+            mode=mode,
+            threshold_cores=_positive_float("CHRONOS_THRESHOLD", 0.3),
+            capacity_per_replica_cores=_positive_float(
+                "CHRONOS_CAPACITY_PER_REPLICA", 0.5
+            ),
+            lookback_hours=_positive_float("CHRONOS_LOOKBACK_HOURS", 2),
+            prediction_length=_positive_int("CHRONOS_PREDICTION_LENGTH", 12),
+            step_seconds=_positive_int("CHRONOS_STEP_SECONDS", 60),
+            min_replicas=_positive_int("CHRONOS_MIN_REPLICAS", 1),
+            max_replicas=_positive_int("CHRONOS_MAX_REPLICAS", 3),
+            forecast_interval_seconds=_positive_int(
+                "CHRONOS_FORECAST_INTERVAL_SECONDS", 60
+            ),
+            forecast_ttl_seconds=_positive_int("CHRONOS_FORECAST_TTL_SECONDS", 120),
+            request_timeout_seconds=_positive_float(
+                "CHRONOS_REQUEST_TIMEOUT_SECONDS", 10
+            ),
+            model_id=os.environ.get(
+                "CHRONOS_MODEL_ID", "amazon/chronos-t5-small"
+            ),
+            fake_replicas=int(fake_value) if fake_value else None,
+            forecast_output=os.environ.get(
+                "FORECAST_FILE", forecast_output_default
+            ),
+        )
+        settings.validate()
+        return settings
+
+    def validate(self) -> None:
+        if self.mode not in VALID_MODES:
+            raise ValueError(
+                f"CHRONOS_MODE must be one of {sorted(VALID_MODES)}, got {self.mode!r}"
+            )
+        if self.max_replicas < self.min_replicas:
+            raise ValueError(
+                "CHRONOS_MAX_REPLICAS must be greater than or equal to "
+                "CHRONOS_MIN_REPLICAS"
+            )
+        if self.forecast_ttl_seconds < self.forecast_interval_seconds:
+            raise ValueError(
+                "CHRONOS_FORECAST_TTL_SECONDS must be greater than or equal to "
+                "CHRONOS_FORECAST_INTERVAL_SECONDS"
+            )
+        if self.fake_replicas is not None and self.fake_replicas <= 0:
+            raise ValueError("CHRONOS_FAKE_REPLICAS must be greater than zero")
+
+
+@dataclass(frozen=True)
+class ForecastResult:
+    timestamp: str
+    forecast_start_time: str
+    forecast_end_time: str
+    namespace: str
+    deployment: str
+    predicted_cpu_usage: float
+    predicted_max_cpu_pct: float
+    scale_out_needed: bool
+    current_replicas: int
+    predicted_replicas: int
+    source_points: int
+
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        # 기존 alarm/generate_report.py 및 forecast_result.json 소비자와의 호환 필드입니다.
+        data["pod"] = self.deployment
+        return data
+
+
+class ForecastModel(Protocol):
+    def predict_max(self, values: Sequence[float], prediction_length: int) -> float:
+        """향후 구간의 중간값 예측 중 최댓값을 반환합니다."""
+
+
+class ChronosModel:
+    """ChronosPipeline을 한 번만 로딩해 반복 예측에 재사용합니다."""
+
+    def __init__(self, model_id: str):
+        self.model_id = model_id
+        self._pipeline = None
+
+    def _get_pipeline(self):
+        if self._pipeline is None:
+            import torch
+            from chronos import ChronosPipeline
+
+            self._pipeline = ChronosPipeline.from_pretrained(
+                self.model_id,
+                device_map="cpu",
+                torch_dtype=torch.float32,
+            )
+        return self._pipeline
+
+    def predict_max(self, values: Sequence[float], prediction_length: int) -> float:
+        import torch
+
+        context = torch.tensor(values, dtype=torch.float32)
+        forecast = self._get_pipeline().predict(context, prediction_length)
+        median_forecast = forecast[0].median(dim=0).values
+        return max(0.0, float(median_forecast.max().item()))
+
+
+def _escape_promql(value: str) -> str:
+    return value.replace("\\", r"\\").replace('"', r'\"')
+
+
+def build_cpu_query(settings: ForecastSettings) -> str:
+    """Replica 수와 무관한 Deployment 전체 CPU 수요 시계열을 만듭니다."""
+
+    labels = [
+        f'namespace="{_escape_promql(settings.target_namespace)}"',
+        f'pod=~"{_escape_promql(settings.pod_pattern)}"',
+        'container!="POD"',
+    ]
+    if settings.container_name:
+        labels.insert(
+            2,
+            f'container="{_escape_promql(settings.container_name)}"',
+        )
+    return (
+        "sum(rate(container_cpu_usage_seconds_total{"
+        + ",".join(labels)
+        + "}[5m]))"
+    )
+
+
+def fetch_cpu_series(
+    settings: ForecastSettings,
+    *,
+    session=None,
+    now: datetime | None = None,
+) -> list[float]:
+    if session is None:
+        import requests
+
+        session = requests
+    end = now or datetime.now(timezone.utc)
+    start = end - timedelta(hours=settings.lookback_hours)
+    response = session.get(
+        f"{settings.prometheus_url}/api/v1/query_range",
+        params={
+            "query": build_cpu_query(settings),
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "step": f"{settings.step_seconds}s",
+        },
+        timeout=settings.request_timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("status") != "success":
+        raise RuntimeError(f"Prometheus query failed: {payload!r}")
+
+    results = payload.get("data", {}).get("result", [])
+    if not results:
+        raise RuntimeError(
+            "Prometheus/Thanos returned no CPU data for "
+            f"{settings.target_namespace}/{settings.target_deployment}"
+        )
+
+    # build_cpu_query()는 집계 결과 하나를 반환해야 합니다. 방어적으로 여러 결과가
+    # 오면 동일 timestamp의 값을 합쳐 예측 입력이 임의의 첫 Pod에 종속되지 않게 합니다.
+    series_by_timestamp: dict[float, float] = {}
+    for result in results:
+        for timestamp, value in result.get("values", []):
+            numeric = float(value)
+            if math.isfinite(numeric):
+                key = float(timestamp)
+                series_by_timestamp[key] = series_by_timestamp.get(key, 0.0) + numeric
+
+    values = [series_by_timestamp[key] for key in sorted(series_by_timestamp)]
+    if len(values) < settings.prediction_length:
+        raise RuntimeError(
+            f"Not enough CPU data points: got {len(values)}, "
+            f"need at least {settings.prediction_length}"
+        )
+    return values
+
+
+class ForecastEngine:
+    def __init__(
+        self,
+        settings: ForecastSettings,
+        model: ForecastModel | None = None,
+        *,
+        session=None,
+        current_replicas_provider: Callable[[], int] | None = None,
+        preserve_current_when_below_threshold: bool = False,
+        clamp_to_max_replicas: bool = True,
+    ):
+        self.settings = settings
+        self.model = model or ChronosModel(settings.model_id)
+        self.session = session
+        self.current_replicas_provider = current_replicas_provider
+        self.preserve_current_when_below_threshold = (
+            preserve_current_when_below_threshold
+        )
+        self.clamp_to_max_replicas = clamp_to_max_replicas
+
+    def forecast(self, *, now: datetime | None = None) -> ForecastResult:
+        generated_at = now or datetime.now(timezone.utc)
+        if self.settings.fake_replicas is not None:
+            values = []
+            predicted_cpu = (
+                self.settings.fake_replicas
+                * self.settings.capacity_per_replica_cores
+            )
+        else:
+            values = fetch_cpu_series(
+                self.settings, session=self.session, now=generated_at
+            )
+            predicted_cpu = self.model.predict_max(
+                values, self.settings.prediction_length
+            )
+        current_replicas = (
+            self.current_replicas_provider()
+            if self.current_replicas_provider is not None
+            else self.settings.min_replicas
+        )
+        scale_out_needed = predicted_cpu > self.settings.threshold_cores
+        if self.preserve_current_when_below_threshold and not scale_out_needed:
+            predicted_replicas = current_replicas
+        else:
+            predicted_replicas = max(
+                self.settings.min_replicas,
+                math.ceil(
+                    predicted_cpu
+                    / self.settings.capacity_per_replica_cores
+                ),
+            )
+            if self.clamp_to_max_replicas:
+                predicted_replicas = min(
+                    self.settings.max_replicas, predicted_replicas
+                )
+        forecast_end = generated_at + timedelta(
+            seconds=self.settings.prediction_length * self.settings.step_seconds
+        )
+        result = ForecastResult(
+            timestamp=generated_at.isoformat(),
+            forecast_start_time=generated_at.isoformat(),
+            forecast_end_time=forecast_end.isoformat(),
+            namespace=self.settings.target_namespace,
+            deployment=self.settings.target_deployment,
+            predicted_cpu_usage=round(predicted_cpu, 6),
+            predicted_max_cpu_pct=round(
+                predicted_cpu / self.settings.capacity_per_replica_cores * 100,
+                3,
+            ),
+            scale_out_needed=scale_out_needed,
+            current_replicas=current_replicas,
+            predicted_replicas=predicted_replicas,
+            source_points=len(values),
+        )
+        self._write_result(result)
+        return result
+
+    def _write_result(self, result: ForecastResult) -> None:
+        if not self.settings.forecast_output:
+            return
+        output = Path(self.settings.forecast_output).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
+def get_current_replicas(settings: ForecastSettings) -> int:
+    """기존 로컬 파이프라인처럼 kubectl로 현재 Deployment replica를 조회합니다."""
+
     try:
         result = subprocess.run(
-            ["kubectl", "get", "deployment", TARGET_DEPLOYMENT, "-n", TARGET_NAMESPACE,
-             "-o", "jsonpath={.spec.replicas}"],
-            capture_output=True, text=True, timeout=10, check=True,
+            [
+                "kubectl",
+                "get",
+                "deployment",
+                settings.target_deployment,
+                "-n",
+                settings.target_namespace,
+                "-o",
+                "jsonpath={.spec.replicas}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
         )
         return int(result.stdout.strip())
-    except Exception as e:
-        print(f"현재 replica 수 조회 실패, 기본값 1 사용: {e}")
+    except Exception as exc:
+        print(f"현재 replica 수 조회 실패, 기본값 1 사용: {exc}")
         return 1
 
 
-end = datetime.now(timezone.utc)
-start = end - timedelta(hours=LOOKBACK_HOURS)
-resp = requests.get(f"{PROM_URL}/api/v1/query_range", params={
-    "query": QUERY,
-    "start": start.isoformat(),
-    "end": end.isoformat(),
-    "step": "60s",
-})
-resp.raise_for_status()
-data = resp.json()
-results = data["data"]["result"]
-if not results:
-    raise SystemExit(
-        f"Prometheus에서 '{POD_PATTERN}' 패턴의 데이터를 못 가져왔습니다. "
-        f"대상 파드가 떠 있는지, 포트포워딩(9090)이 되어있는지, "
-        f"CHRONOS_LOOKBACK_HOURS가 파드 기동 시점보다 긴지 확인하세요."
+def legacy_cli_settings_from_environment() -> ForecastSettings:
+    """run_pipeline.sh에서 사용하던 기존 기본값을 그대로 유지합니다."""
+
+    return ForecastSettings.from_environment(
+        prometheus_url_default="http://localhost:9090",
+        deployment_default="test-overprovisioned",
+        namespace_default="default",
+        container_default="",
+        pod_pattern_separator="",
+        forecast_output_default="~/k8s-manifest/forecast_result.json",
     )
 
-values = [float(v[1]) for v in results[0]["values"]]
-print(f"가져온 데이터 포인트 수: {len(values)}")
-print("최근 10개 값:", values[-10:])
 
-context = torch.tensor(values, dtype=torch.float32)
-print("모델 불러오는 중...")
-pipeline = ChronosPipeline.from_pretrained(
-    "amazon/chronos-t5-small",
-    device_map="cpu",
-    torch_dtype=torch.float32,
-)
-prediction_length = 12  # step=60s 기준 향후 12분 예측
-forecast = pipeline.predict(context, prediction_length)
-median_forecast = forecast[0].median(dim=0).values
-print("향후 12분 CPU 사용량 예측(중간값):")
-print(median_forecast)
+def main() -> int:
+    settings = legacy_cli_settings_from_environment()
+    if settings.mode == "disabled":
+        print("CHRONOS_MODE=disabled: forecast skipped")
+        return 0
+    started = time.monotonic()
+    result = ForecastEngine(
+        settings,
+        current_replicas_provider=lambda: get_current_replicas(settings),
+        preserve_current_when_below_threshold=True,
+        clamp_to_max_replicas=False,
+    ).forecast()
+    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    print(f"forecast completed in {time.monotonic() - started:.3f}s")
+    return 0
 
-if median_forecast.max().item() > THRESHOLD:
-    print(f"예측치가 임계값({THRESHOLD})을 초과 → 스케일아웃 신호")
-else:
-    print(f"예측치가 임계값({THRESHOLD}) 이내 → 스케일아웃 불필요")
 
-predicted_max = median_forecast.max().item()
-current_replicas = get_current_replicas()
-scale_out_needed = predicted_max > THRESHOLD
-predicted_replicas = (
-    max(1, math.ceil(predicted_max / CAPACITY_PER_REPLICA))
-    if scale_out_needed else current_replicas
-)
-
-result = {
-    "timestamp": datetime.now(timezone.utc).isoformat(),
-    "pod": TARGET_DEPLOYMENT,
-    "predicted_cpu_usage": round(predicted_max, 6),
-    "scale_out_needed": scale_out_needed,
-    "current_replicas": current_replicas,
-    "predicted_replicas": predicted_replicas,
-}
-os.makedirs(os.path.dirname(FORECAST_OUTPUT), exist_ok=True)
-with open(FORECAST_OUTPUT, "w", encoding="utf-8") as f:
-    json.dump(result, f, ensure_ascii=False, indent=2)
-
-print(f"\n=== KEDA 연동용 예측 결과 ({FORECAST_OUTPUT}에 저장됨) ===")
-print(json.dumps(result, ensure_ascii=False, indent=2))
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -123,3 +123,15 @@ output "krr_demo_seed_ecr_repository_url" {
   description = "KRR 더미 이력 시딩용 initContainer 이미지 ECR Repository URL"
   value       = module.krr_demo_seed_ecr.repository_url
 }
+
+module "chronos_model_ecr" {
+  source = "../modules/09-ecr"
+
+  repository_name      = "chronos-model"
+  image_tag_mutability = "IMMUTABLE"
+}
+
+output "chronos_model_ecr_repository_url" {
+  description = "Chronos 선제 오토스케일링 모델 서비스 ECR Repository URL"
+  value       = module.chronos_model_ecr.repository_url
+}

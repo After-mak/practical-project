@@ -45,6 +45,12 @@ variable "finops_analyzer_image_repository" {
   default     = ""
 }
 
+variable "chronos_model_image_repository" {
+  description = "Chronos 예측 서비스가 사용하는 ECR Repository URL"
+  type        = string
+  default     = ""
+}
+
 variable "enable_krr_demo_seed" {
   description = "Prometheus 기동 전 KRR 시연용 더미 이력 데이터를 채우는 initContainer 활성화 여부 (dev/데모 환경 전용, 기본 비활성)"
   type        = bool
