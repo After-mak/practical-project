@@ -58,6 +58,7 @@ def test_active_mode_exposes_keda_signal_and_existing_finops_api_contract():
     metrics = client.get("/metrics").text
 
     assert response.status_code == 200
+    assert response.json()["model_id"] == "amazon/chronos-2"
     assert response.json()["predicted_max_cpu_pct"] == 240.0
     assert response.json()["predicted_replicas"] == 3
     assert (
@@ -68,6 +69,7 @@ def test_active_mode_exposes_keda_signal_and_existing_finops_api_contract():
         'chronos_forecast_valid{deployment="sample-worker",namespace="sample-fastapi"} 1.0'
         in metrics
     )
+    assert 'chronos_model_info{model_id="amazon/chronos-2"} 1.0' in metrics
 
 
 def test_shadow_mode_records_prediction_without_scaling_signal():
@@ -88,7 +90,9 @@ def test_disabled_mode_is_healthy_but_does_not_produce_prediction():
     client, runtime = make_client(mode="disabled")
     runtime.run_once()
 
-    assert client.get("/health/live").status_code == 200
+    live = client.get("/health/live")
+    assert live.status_code == 200
+    assert live.json()["model_id"] == "amazon/chronos-2"
     assert client.get("/health/ready").json()["mode"] == "disabled"
     assert client.get("/predict/sample-fastapi/sample-worker").status_code == 503
     assert "chronos_scaling_replicas" in client.get("/metrics").text

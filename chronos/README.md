@@ -1,6 +1,7 @@
-# Chronos 선제 오토스케일링 서비스
+# Chronos-2 선제 오토스케일링 서비스
 
-Thanos/Prometheus에 저장된 `sample-worker` 전체 CPU 시계열을 Chronos 모델로
+Thanos/Prometheus에 저장된 `sample-worker` 전체 CPU 시계열을
+`amazon/chronos-2` 모델로
 예측하고, 기존 FinOps API와 KEDA용 Prometheus 메트릭을 함께 제공합니다.
 
 ## API
@@ -52,6 +53,7 @@ chronos_forecast_valid
 chronos_forecast_execution_seconds
 chronos_forecast_errors_total
 chronos_mode
+chronos_model_info
 ```
 
 모든 워크로드 메트릭에는 `namespace`, `deployment` Label이 붙습니다.
@@ -75,7 +77,7 @@ chronos_mode
 | `CHRONOS_MAX_REPLICAS` | `3` |
 | `CHRONOS_FORECAST_INTERVAL_SECONDS` | `60` |
 | `CHRONOS_FORECAST_TTL_SECONDS` | `120` |
-| `CHRONOS_MODEL_ID` | `amazon/chronos-t5-small` |
+| `CHRONOS_MODEL_ID` | `amazon/chronos-2` |
 | `CHRONOS_FAKE_REPLICAS` | 미설정 |
 
 `CHRONOS_FAKE_REPLICAS=3`을 지정하면 Thanos와 모델을 호출하지 않고 Replica 3

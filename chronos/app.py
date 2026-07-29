@@ -108,6 +108,13 @@ class ForecastRuntime:
             labelnames=("mode",),
             registry=self.registry,
         )
+        self.model_info = Gauge(
+            "chronos_model_info",
+            "Configured Chronos model",
+            labelnames=("model_id",),
+            registry=self.registry,
+        )
+        self.model_info.labels(model_id=settings.model_id).set(1)
         for name in ("disabled", "shadow", "active"):
             self.mode.labels(mode=name).set(1 if settings.mode == name else 0)
         self._set_inactive_metrics()
@@ -240,6 +247,7 @@ class ForecastRuntime:
                 "forecast_start_time": result.forecast_start_time,
                 "forecast_end_time": result.forecast_end_time,
                 "mode": self.settings.mode,
+                "model_id": self.settings.model_id,
                 "source_points": result.source_points,
             }
 
@@ -269,19 +277,31 @@ def create_app(
 
     @application.get("/health/live")
     def live() -> dict:
-        return {"status": "alive", "mode": configured_settings.mode}
+        return {
+            "status": "alive",
+            "mode": configured_settings.mode,
+            "model_id": configured_settings.model_id,
+        }
 
     @application.get("/health/ready")
     def ready() -> dict:
         if configured_settings.mode == "disabled":
-            return {"status": "ready", "mode": "disabled"}
+            return {
+                "status": "ready",
+                "mode": "disabled",
+                "model_id": configured_settings.model_id,
+            }
         if not configured_runtime.refresh_expiry():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=configured_runtime.state.last_error
                 or "no valid forecast is available",
             )
-        return {"status": "ready", "mode": configured_settings.mode}
+        return {
+            "status": "ready",
+            "mode": configured_settings.mode,
+            "model_id": configured_settings.model_id,
+        }
 
     @application.get("/predict/{namespace}/{deployment}")
     def predict(namespace: str, deployment: str) -> dict:

@@ -1,4 +1,4 @@
-# Chronos 기반 선제 오토스케일링 Runbook
+# Chronos-2 기반 선제 오토스케일링 Runbook
 
 ## 검증 범위
 
@@ -34,6 +34,7 @@ Thanos 과거 CPU
 |---|---|
 | Chronos Namespace | `monitoring` |
 | Chronos Service | `chronos-model:8000` |
+| Chronos 모델/Pipeline | `amazon/chronos-2` / `Chronos2Pipeline` |
 | 대상 Namespace | `sample-fastapi` |
 | 대상 Deployment | `sample-worker` |
 | Queue | `dev:sample:queue` |
@@ -177,6 +178,8 @@ curl http://127.0.0.1:18000/metrics
 
 Shadow Mode 성공 조건:
 
+- `/health/live`의 `model_id=amazon/chronos-2`
+- `chronos_model_info{model_id="amazon/chronos-2"} 1`
 - Thanos Query 성공
 - 예측 Timestamp가 60초마다 갱신
 - `chronos_forecast_valid=1`

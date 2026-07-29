@@ -1,8 +1,11 @@
+import sys
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from chronos_prometheus import (
+    Chronos2Model,
     ForecastEngine,
     ForecastSettings,
     build_cpu_query,
@@ -42,6 +45,17 @@ class FixedModel:
         return self.predicted_max
 
 
+class FakePointForecast:
+    def __init__(self, maximum):
+        self.maximum = maximum
+
+    def max(self):
+        return self
+
+    def item(self):
+        return self.maximum
+
+
 def settings(**overrides):
     values = {
         "prometheus_url": "http://thanos-query:9090",
@@ -69,6 +83,47 @@ def test_cpu_query_aggregates_the_whole_deployment():
     assert "by (pod)" not in query
 
 
+def test_chronos2_model_uses_official_pipeline_and_median_forecast(monkeypatch):
+    calls = {}
+
+    class FakeChronos2Pipeline:
+        @classmethod
+        def from_pretrained(cls, model_id, **kwargs):
+            calls["load"] = (model_id, kwargs)
+            return cls()
+
+        def predict_quantiles(self, inputs, **kwargs):
+            calls["predict"] = (inputs, kwargs)
+            return [object()], [FakePointForecast(0.75)]
+
+    fake_torch = SimpleNamespace(
+        float32="float32",
+        tensor=lambda values, dtype: ("tensor", list(values), dtype),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "chronos",
+        SimpleNamespace(Chronos2Pipeline=FakeChronos2Pipeline),
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    model = Chronos2Model("amazon/chronos-2")
+    predicted_max = model.predict_max([0.1, 0.2, 0.3], 12)
+
+    assert predicted_max == 0.75
+    assert calls["load"] == (
+        "amazon/chronos-2",
+        {"device_map": "cpu", "torch_dtype": "float32"},
+    )
+    assert calls["predict"][0] == [
+        ("tensor", [0.1, 0.2, 0.3], "float32")
+    ]
+    assert calls["predict"][1] == {
+        "prediction_length": 12,
+        "quantile_levels": [0.5],
+    }
+
+
 def test_cpu_query_can_keep_legacy_container_agnostic_behavior():
     query = build_cpu_query(settings(container_name=""))
 
@@ -94,6 +149,7 @@ def test_legacy_cli_defaults_are_preserved(monkeypatch):
     assert legacy.target_namespace == "default"
     assert legacy.pod_pattern == "test\\-overprovisioned.*"
     assert legacy.container_name == ""
+    assert legacy.model_id == "amazon/chronos-2"
     assert legacy.forecast_output == "~/k8s-manifest/forecast_result.json"
 
 

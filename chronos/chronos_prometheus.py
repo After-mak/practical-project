@@ -54,7 +54,7 @@ class ForecastSettings:
     forecast_interval_seconds: int = 60
     forecast_ttl_seconds: int = 120
     request_timeout_seconds: float = 10.0
-    model_id: str = "amazon/chronos-t5-small"
+    model_id: str = "amazon/chronos-2"
     fake_replicas: int | None = None
     forecast_output: str = ""
 
@@ -109,7 +109,7 @@ class ForecastSettings:
                 "CHRONOS_REQUEST_TIMEOUT_SECONDS", 10
             ),
             model_id=os.environ.get(
-                "CHRONOS_MODEL_ID", "amazon/chronos-t5-small"
+                "CHRONOS_MODEL_ID", "amazon/chronos-2"
             ),
             fake_replicas=int(fake_value) if fake_value else None,
             forecast_output=os.environ.get(
@@ -164,8 +164,8 @@ class ForecastModel(Protocol):
         """향후 구간의 중간값 예측 중 최댓값을 반환합니다."""
 
 
-class ChronosModel:
-    """ChronosPipeline을 한 번만 로딩해 반복 예측에 재사용합니다."""
+class Chronos2Model:
+    """Chronos2Pipeline을 한 번만 로딩해 반복 예측에 재사용합니다."""
 
     def __init__(self, model_id: str):
         self.model_id = model_id
@@ -174,9 +174,9 @@ class ChronosModel:
     def _get_pipeline(self):
         if self._pipeline is None:
             import torch
-            from chronos import ChronosPipeline
+            from chronos import Chronos2Pipeline
 
-            self._pipeline = ChronosPipeline.from_pretrained(
+            self._pipeline = Chronos2Pipeline.from_pretrained(
                 self.model_id,
                 device_map="cpu",
                 torch_dtype=torch.float32,
@@ -187,8 +187,14 @@ class ChronosModel:
         import torch
 
         context = torch.tensor(values, dtype=torch.float32)
-        forecast = self._get_pipeline().predict(context, prediction_length)
-        median_forecast = forecast[0].median(dim=0).values
+        _, point_forecasts = self._get_pipeline().predict_quantiles(
+            [context],
+            prediction_length=prediction_length,
+            quantile_levels=[0.5],
+        )
+        # 단변량 입력 하나이므로 첫 결과의 shape은 (1, prediction_length)입니다.
+        # Chronos-2는 point forecast로 학습 quantile 0.5(중앙값)를 반환합니다.
+        median_forecast = point_forecasts[0]
         return max(0.0, float(median_forecast.max().item()))
 
 
@@ -281,7 +287,7 @@ class ForecastEngine:
         clamp_to_max_replicas: bool = True,
     ):
         self.settings = settings
-        self.model = model or ChronosModel(settings.model_id)
+        self.model = model or Chronos2Model(settings.model_id)
         self.session = session
         self.current_replicas_provider = current_replicas_provider
         self.preserve_current_when_below_threshold = (
