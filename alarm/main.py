@@ -2,6 +2,7 @@ import os
 import requests
 import threading
 import time
+import base64
 from typing import Optional
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
@@ -14,35 +15,53 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 env_alarm = os.path.join(BASE_DIR, ".env")
 env_root = os.path.join(os.path.dirname(BASE_DIR), ".env")
 
-# alarm/.env 가 없으면 최상위 .env 자동 로드
+# alarm/.env 가 없으면 최상위 .env 자동 로드 (K8s Secret 우선 보호)
 if os.path.exists(env_alarm):
-    load_dotenv(env_alarm)
+    load_dotenv(env_alarm, override=False)
 elif os.path.exists(env_root):
-    load_dotenv(env_root)
+    load_dotenv(env_root, override=False)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 TELEGRAM_UPDATE_MODE = os.getenv("TELEGRAM_UPDATE_MODE", "webhook").lower()
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "https://alarm.tuby.shop").rstrip("/")
 
-GITHUB_TOKEN = os.getenv("GITOPS_TOKEN")
+# --------------------------------------------------
+# 🔑 GITHUB_TOKEN 로드 및 Base64 자동 디코딩 방어 로직
+# --------------------------------------------------
+raw_token = os.getenv("GITOPS_TOKEN", "")
+
+# 'Z2hv'로 시작하면 Base64 인코딩된 'ghp_' 토큰이므로 자동 디코딩
+if raw_token and raw_token.startswith("Z2hv"):
+    try:
+        GITHUB_TOKEN = base64.b64decode(raw_token).decode("utf-8")
+        print("💡 [INFO] Base64로 인코딩된 GITOPS_TOKEN을 원문(ghp_...)으로 복원했습니다.")
+    except Exception:
+        GITHUB_TOKEN = raw_token
+else:
+    GITHUB_TOKEN = raw_token
+
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
-# ✅ 수정 1: mak-argocd-deploy의 기본 브랜치는 main이므로 기본값을 main으로 변경
+# ✅ 기본 브랜치는 main
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "main")
 ROLLBACK_WORKFLOW_REPO_NAME = os.getenv("ROLLBACK_WORKFLOW_REPO_NAME", "practical-project")
 ROLLBACK_WORKFLOW_BRANCH = os.getenv("ROLLBACK_WORKFLOW_BRANCH", "dev")
 GITOPS_TARGET_BRANCH = os.getenv("GITOPS_TARGET_BRANCH", "main")
 
-# FinOps(KRR) 정책 엔진 서비스 주소. 
+# FinOps(KRR) 정책 엔진 서비스 주소
 FINOPS_URL = os.getenv("FINOPS_URL", "http://finops-analyzer.finops.svc.cluster.local:8000")
 
-GRAFANA_URL = "http://tuby.shop:3000"
+GRAFANA_URL = "https://grafana.tuby.shop/login"
 
-# 🔍 .env 로딩 여부 터미널 점검 로그
+# 🔍 .env 로딩 여부 및 토큰 상태 점검 로그
 print("--------------------------------------------------")
 print(f"🔑 TELEGRAM_BOT_TOKEN 로드 상태: {'✅ 성공' if TELEGRAM_BOT_TOKEN else '❌ 실패 (None)'}")
 print(f"🆔 TELEGRAM_CHAT_ID 로드 상태: {'✅ 성공' if TELEGRAM_CHAT_ID else '❌ 실패 (None)'}")
+if GITHUB_TOKEN:
+    print(f"🔑 GITHUB_TOKEN 로드 상태: ✅ 성공 (시작문자: {GITHUB_TOKEN[:4]}***)")
+else:
+    print("❌ GITHUB_TOKEN 로드 상태: ❌ 실패 (None)")
 print("--------------------------------------------------")
 
 app = FastAPI(title="FinOps Telegram Alert Gateway")
@@ -245,6 +264,10 @@ def trigger_github_workflow(
 # ==========================================
 # 📩 Webhook Endpoints (총 5개)
 # ==========================================
+# ==========================================
+# 🚀 KEDA 스케일링 / 부하 감지 텔레그램 알림 엔드포인트
+# ==========================================
+
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request):
     payload = await request.json()
@@ -298,29 +321,47 @@ async def finops_webhook(req: Optional[CustomRollbackRequest] = None):
     send_telegram_message(text, reply_markup)
     return {"status": "ok"}
 
-@app.post("/webhook/deploy-request")
-async def deploy_request_webhook(req: Optional[DeployRequest] = None):
-    if req is None:
-        req = DeployRequest()
+@app.post("/webhook/deploy-complete")
+async def deploy_complete_notification(request: Request):
+    try:
+        data = await request.json()
+        version = data.get("version", "v1.2.0")
+        app_name = data.get("app_name", "mak-app")
+    except Exception:
+        version = "v1.2.0"
+        app_name = "mak-app"
 
     text = (
-        "💡 *[FinOps / KRR 리소스 최적화 추천]*\n"
-        "mak-app 분석 결과 최적의 리소스 스펙 및 배포 타겟이 산출되었습니다.\n\n"
-        "📊 *스펙 변경 비교 (values.yaml 반영 예정)*:\n"
-        f"• **Target Tag**: `{req.target_tag}`\n"
-        f"• **CPU Request**: `{req.current_cpu}` ➡️ *`{req.recommended_cpu}`*\n"
-        f"• **Memory Request**: `{req.current_mem}` ➡️ *`{req.recommended_mem}`*\n\n"
-        "승인 시 Helm Chart의 `values.yaml` 스펙을 변경하여 자동 배포를 진행합니다."
+        f"🚀 **[배포 완료 알림]**\n"
+        f"• **Service**: `{app_name}`\n"
+        f"• **Target Tag**: `{version}`\n\n"
+        f"✨ 최적화 배포 파이프라인이 성공적으로 가동되었습니다!"
     )
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": f"✅ 배포 승인 ({req.target_tag})", "callback_data": f"deploy_approve_{req.target_tag}"},
-            {"text": "🔍 대시보드 확인", "url": GRAFANA_URL}
-        ]]
-    }
-    send_telegram_message(text, reply_markup)
-    return {"status": "ok"}
+    send_telegram_message(text)
+    return {"status": "ok", "message": "Deployment notification sent to telegram"}
 
+
+@app.post("/webhook/keda-scale")
+async def keda_scale_webhook(request: Request):
+    try:
+        data = await request.json()
+        scaled_object = data.get("scaledObject", "finops-tg-scaler")
+        namespace = data.get("namespace", "default")
+        replicas = data.get("replicas", "unknown")
+    except Exception:
+        scaled_object = "finops-tg-scaler"
+        namespace = "default"
+        replicas = "여러 개"
+
+    text = (
+        "📈 *[KEDA 오토스케일링 감지 알림]*\n"
+        f"• **ScaledObject**: `{scaled_object}`\n"
+        f"• **Namespace**: `{namespace}`\n"
+        f"• **현재 확장된 파드 수**: `{replicas}`개\n\n"
+        "⚡ 큐(Queue) 부하가 감지되어 KEDA가 자동으로 파드를 확장(Scale-Up)했습니다!"
+    )
+    send_telegram_message(text)
+    return {"status": "ok", "message": "KEDA scaling alert sent to telegram"}
 @app.post("/webhook/rollout")
 async def rollout_failed_webhook(request: Request):
     try:
