@@ -295,6 +295,8 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
 YAML
 }
 
