@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     TRANSFORMERS_CACHE=/tmp/huggingface
 
 COPY chronos/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY chronos/chronos_prometheus.py chronos/app.py ./
 
