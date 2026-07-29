@@ -290,7 +290,7 @@ spec:
     path: charts/cnpg-db
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: backend
   syncPolicy:
     automated:
       prune: true
@@ -366,7 +366,7 @@ spec:
     path: charts/tg-gateway
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: frontend
   syncPolicy:
     automated:
       prune: true
