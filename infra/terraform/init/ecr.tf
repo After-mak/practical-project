@@ -115,8 +115,10 @@ output "tg_gateway_ecr_repository_url" {
 module "krr_demo_seed_ecr" {
   source = "../modules/09-ecr"
 
-  repository_name      = "krr-demo-seed"
-  image_tag_mutability = "IMMUTABLE"
+  repository_name = "krr-demo-seed"
+  # latest 태그를 CI가 매번 재푸시해서 덮어써야 하므로 MUTABLE로 설정합니다
+  # (IMMUTABLE이면 최초 1회 이후 latest 재푸시가 전부 실패함 - 실제로 겪은 문제).
+  image_tag_mutability = "MUTABLE"
 }
 
 output "krr_demo_seed_ecr_repository_url" {

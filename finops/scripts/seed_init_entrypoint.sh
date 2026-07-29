@@ -19,6 +19,7 @@ echo "[seed-init] KRR 더미 이력 시딩 시작 (namespace=${SCENARIOS_NS}, da
 seed_one() {
   deployment="$1"
   component="$2"
+  profile="${3:-krr-rightsizing}"
 
   pod_name=$(kubectl get pods -n "$SCENARIOS_NS" \
     -l "app.kubernetes.io/name=sample-fastapi,app.kubernetes.io/component=${component}" \
@@ -29,16 +30,20 @@ seed_one() {
     return 0
   fi
 
-  echo "[seed-init] ${deployment} -> 실제 파드 '${pod_name}' 기준으로 생성"
+  echo "[seed-init] ${deployment} -> 실제 파드 '${pod_name}' 기준으로 생성 (profile=${profile})"
   om_file="/tmp/${deployment}.om"
   python3 /opt/krr-seed/generate_krr_dummy_history.py \
     --namespace "$SCENARIOS_NS" --deployment "$deployment" --pod "$pod_name" \
-    --days "$SEED_DAYS" --output "$om_file"
+    --days "$SEED_DAYS" --profile "$profile" --output "$om_file"
 
   promtool tsdb create-blocks-from openmetrics "$om_file" "$TSDB_PATH"
 }
 
 seed_one "sample-fastapi" "api"
-seed_one "sample-worker" "worker"
+# sample-worker는 Chronos-2의 예측 대상이기도 하므로, 20분 주기 정상->상승->급증->회복
+# 패턴(chronos-periodic-spike)으로 생성합니다. 이 패턴은 계속 반복되므로 Chronos의 짧은
+# lookback(기본 2시간) 창이 "지금" 어느 시점이든 항상 급증 구간을 포함하게 되어, KRR용
+# 더미 데이터처럼 Prometheus 기동 시점에 한 번만 채워도 그 이후 재생성 없이 계속 유효합니다.
+seed_one "sample-worker" "worker" "chronos-periodic-spike"
 
 echo "[seed-init] 완료"
