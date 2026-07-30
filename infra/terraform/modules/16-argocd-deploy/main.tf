@@ -80,12 +80,13 @@ spec:
 YAML
 }
 
-resource "kubectl_manifest" "mak_app" {
+# 1. Frontend 애플리케이션 (프론트엔드 관련 리소스 담당 네임스페이스)
+resource "kubectl_manifest" "mak_frontend" {
   yaml_body = <<YAML
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: mak-app
+  name: mak-frontend
   namespace: argocd
   finalizers:
   - resources-finalizer.argocd.argoproj.io
@@ -94,9 +95,46 @@ spec:
   source:
     repoURL: https://github.com/After-mak/mak-argocd-deploy.git
     targetRevision: main
-    path: charts/mak-app
+    path: charts/mak-app    # 또는 프론트엔드 전용 차트 경로로 분리 가능
     helm:
       values: |
+        # 프론트엔드 전용 values 설정 (필요시)
+        components:
+          backend: false
+          frontend: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: frontend
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
+# 2. Backend 애플리케이션 (마이크로서비스 및 DB 연동 서비스 담당)
+resource "kubectl_manifest" "mak_backend" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mak-backend
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/After-mak/mak-argocd-deploy.git
+    targetRevision: main
+    path: charts/mak-app    # 또는 백엔드 전용 차트 경로로 분리 가능
+    helm:
+      values: |
+        components:
+          backend: true
+          frontend: false
         secrets:
           jwtPrivateKey: |
             ${indent(12, var.jwt_private_key)}
@@ -104,7 +142,7 @@ spec:
             ${indent(12, var.jwt_public_key)}
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: backend
   syncPolicy:
     automated:
       prune: true
@@ -290,11 +328,13 @@ spec:
     path: charts/cnpg-db
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: backend
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
 YAML
 }
 
