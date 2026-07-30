@@ -102,6 +102,11 @@ spec:
         components:
           backend: false
           frontend: true
+        secrets:
+          jwtPrivateKey: |
+            ${indent(12, var.jwt_private_key)}
+          jwtPublicKey: |
+            ${indent(12, var.jwt_public_key)}
   destination:
     server: https://kubernetes.default.svc
     namespace: frontend
