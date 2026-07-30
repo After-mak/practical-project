@@ -87,9 +87,8 @@ jobs:
         
         cd gitops-repo
 
-        # 4. 서비스 이름에 해당하는 줄만 찾아 이미지 주소와 새 태그로 교체
-        # 예: userservice: "주소:기존태그" -> userservice: "주소:새태그"
-        sed -i "s#(${{ matrix.service.name }}: \".*):.*\"#\1:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+        # 4. 서비스 이름에 해당하는 줄만 찾아 이미지 주소와 새 태그로 교체 (안전한 버전)
+        sed -i "s#(${{ matrix.service.name }}: \")[^\"]*#\1372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/mak_${{ matrix.service.name }}_ecr:${IMAGE_TAG}#" charts/mak-app/values.yaml
 
         # 5. 변경사항 Commit & Push
         git add .
