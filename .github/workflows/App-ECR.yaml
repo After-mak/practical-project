@@ -87,18 +87,32 @@ jobs:
         
         cd gitops-repo
 
-        # 해당 서비스 이름이 포함된 줄을 찾아서 이미지 주소와 태그를 통째로 교체
-        sed -i "s#${{ matrix.service.name }}:.*#${{ matrix.service.name }}: \"372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/${{ matrix.service.repo }}:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+        # 4. 재시도 루프 (충돌 시 리베이스 대신 초기화 후 재적용)
+        while true; do
+          # 최신 상태 가져오기
+          git pull origin main --no-rebase || true
 
-        # 5. 변경사항 Commit & Push (동시 푸시 충돌 시 랜덤 대기 후 자동 재시도)
-        git add .
-        git diff --cached --quiet || {
-          git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG"
+          # 이미지 태그 교체
+          sed -i "s#${{ matrix.service.name }}:.*#${{ matrix.service.name }}: \"372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/${{ matrix.service.repo }}:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+
+          git add .
           
-          # 푸시가 성공할 때까지 반복 (실패하면 pull 받고 잠시 대기 후 재시도)
-          until git push origin main; do
-            echo "Push blocked due to simultaneous requests. Retrying after sync..."
-            git pull origin main --rebase
-            sleep $((RANDOM % 3 + 1))  # 1~3초 사이로 랜덤 대기하여 충돌 타이밍 분산
-          done
-        }
+          # 변경사항이 없으면 탈출
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            break
+          fi
+
+          git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG"
+
+          # 푸시 시도, 성공하면 탈출, 락 충돌이나 거부되면 리셋 후 랜덤 대기 후 재시도
+          if git push origin main; then
+            echo "Successfully pushed!"
+            break
+          else
+            echo "Push blocked. Resetting local commit and retrying..."
+            git reset --hard HEAD~1
+            git fetch origin main
+            sleep $((RANDOM % 3 + 1))
+          fi
+        done
