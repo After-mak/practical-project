@@ -90,10 +90,15 @@ jobs:
         # 해당 서비스 이름이 포함된 줄을 찾아서 이미지 주소와 태그를 통째로 교체
         sed -i "s#${{ matrix.service.name }}:.*#${{ matrix.service.name }}: \"372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/${{ matrix.service.repo }}:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
 
-        # 5. 변경사항 Commit & Push
+        # 5. 변경사항 Commit & Push (동시 푸시 충돌 시 랜덤 대기 후 자동 재시도)
         git add .
-        git diff --cached --quiet || (
-          git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG" &&
-          git pull origin main --rebase &&
-          git push origin main
-        )
+        git diff --cached --quiet || {
+          git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG"
+          
+          # 푸시가 성공할 때까지 반복 (실패하면 pull 받고 잠시 대기 후 재시도)
+          until git push origin main; do
+            echo "Push blocked due to simultaneous requests. Retrying after sync..."
+            git pull origin main --rebase
+            sleep $((RANDOM % 3 + 1))  # 1~3초 사이로 랜덤 대기하여 충돌 타이밍 분산
+          done
+        }
