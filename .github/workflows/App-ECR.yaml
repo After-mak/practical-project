@@ -67,3 +67,30 @@ jobs:
         # AWS ECR로 이미지 푸시
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+    
+    # 5. GitOps 차트 저장소 업데이트
+    - name: Update Helm Chart in GitOps Repository
+      env:
+        GH_PAT: ${{ secrets.GITOPS_TOKEN }}
+        SERVICE_NAME: ${{ matrix.service.name }}
+      run: |
+        # 1. 태그 계산 (빌드 단계와 동일)
+        IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
+        echo "=== [${{ matrix.service.name }}] 차트 저장소 태그 업데이트 ($IMAGE_TAG) ==="
+
+        # 2. Git 봇 설정
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+        # 3. 차트 저장소 클론
+        git clone https://x-access-token:${GH_PAT}@github.com/After-mak/mak-argocd-deploy.git gitops-repo
+        
+        cd gitops-repo
+
+        # 4. 서비스 이름에 해당하는 줄만 찾아 이미지 주소와 새 태그로 교체
+        # 예: userservice: "주소:기존태그" -> userservice: "주소:새태그"
+        sed -i "s#(${{ matrix.service.name }}: \".*):.*\"#\1:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+
+        # 5. 변경사항 Commit & Push
+        git add .
+        git diff --cached --quiet || (git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG" && git push)
