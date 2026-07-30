@@ -95,9 +95,19 @@ jobs:
         git diff --cached --quiet || (
           git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG"
           
-          # 다른 잡과의 충돌 방지를 위해 push 성공할 때까지 pull --rebase 후 재시도
-          until git push origin main; do
-            echo "Push failed due to concurrent updates. Retrying after rebase..."
-            git pull origin main --rebase
+          # 원격 최신 상태를 받아오되, 충돌이 나면 내 변경사항 기준으로 강제 덮어씌우기(ours) 또는 
+            # 아예 최신 코드로 다시 갱신 후 sed 재적용하는 방식이 안전합니다.
+            git pull origin main --no-rebase -X ours || true
+            
+            if git push origin main; then
+              echo "Successfully pushed!"
+              break
+            else
+              echo "Push failed due to conflict. Resetting and reapplying changes..."
+              git reset --hard origin/main
+              sed -i "s#${{ matrix.service.name }}:.*#${{ matrix.service.name }}: \"372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/${{ matrix.service.repo }}:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+              git add .
+              git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG"
+            fi
           done
         )
