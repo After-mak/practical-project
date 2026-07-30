@@ -1,0 +1,96 @@
+name: Build and Push to Amazon ECR & Update GitOps Tag
+
+on:
+  push:
+    branches: [ "main", "dev" ] # main,dev  브랜치에 소스코드가 push되면 작동
+    paths:
+      - 'app-test/**'
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service:
+          - name: frontend
+            path: ./app-test/frontend
+            repo: mak_frontend_ecr
+          - name: userservice
+            path: ./app-test/accounts/userservice
+            repo: mak_userservice_ecr 
+          - name: contacts
+            path: ./app-test/accounts/contacts
+            repo: mak_contacts_ecr
+          - name: balancereader
+            path: ./app-test/ledger/balancereader
+            repo: mak_balancereader_ecr
+          - name: ledgerwriter
+            path: ./app-test/ledger/ledgerwriter 
+            repo: mak_ledgerwriter_ecr
+          - name: transactionhistory
+            path: ./app-test/ledger/transactionhistory
+            repo: mak_transactionhistory_ecr
+    steps:
+    # 1. 소스코드 체크아웃
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    # 2. AWS 자격 증명 설정 (우리가 등록한 admin-bot의 키를 사용)
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-northeast-2 # 서울 리전
+
+    # 3. Amazon ECR 로그인
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # 4. 도커 이미지 빌드 및 ECR 푸시 (태그는 고유한 커밋 해시값 사용)
+    - name: Build, tag, and push image to Amazon ECR
+      working-directory: ${{ matrix.service.path }}
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ matrix.service.repo }}
+      run: |
+        # 소수점 태그(1.0)
+        IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
+        echo "=== [${{ matrix.service.name }}] 빌드 시작 (태그: $IMAGE_TAG) ==="
+
+        # ECR 주소와 태그를 매핑하여 빌드
+        docker build --no-cache \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+   
+        # AWS ECR로 이미지 푸시
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+    
+    # 5. GitOps 차트 저장소 업데이트
+    - name: Update Helm Chart in GitOps Repository
+      env:
+        GH_PAT: ${{ secrets.GITOPS_TOKEN }}
+        SERVICE_NAME: ${{ matrix.service.name }}
+      run: |
+        # 1. 태그 계산 (빌드 단계와 동일)
+        IMAGE_TAG=$(awk "BEGIN {printf \"%.1f\", ${{ github.run_number }} * 0.1}")
+        echo "=== [${{ matrix.service.name }}] 차트 저장소 태그 업데이트 ($IMAGE_TAG) ==="
+
+        # 2. Git 봇 설정
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+        # 3. 차트 저장소 클론
+        git clone https://x-access-token:${GH_PAT}@github.com/After-mak/mak-argocd-deploy.git gitops-repo
+        
+        cd gitops-repo
+
+        # 4. 서비스 이름에 해당하는 줄만 찾아 이미지 주소와 새 태그로 교체
+        # 예: userservice: "주소:기존태그" -> userservice: "주소:새태그"
+        sed -i "s#(${{ matrix.service.name }}: \".*):.*\"#\1:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+
+        # 5. 변경사항 Commit & Push
+        git add .
+        git diff --cached --quiet || (git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG" && git push)
