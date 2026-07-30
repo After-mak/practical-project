@@ -92,4 +92,8 @@ jobs:
 
         # 5. 변경사항 Commit & Push
         git add .
-        git diff --cached --quiet || (git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG" && git push)
+        git diff --cached --quiet || (
+          git commit -m "ci: update ${{ matrix.service.name }} image tag to $IMAGE_TAG" && 
+          git pull origin main --rebase && 
+          git push
+        )
