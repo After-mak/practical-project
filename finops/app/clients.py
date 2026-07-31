@@ -100,6 +100,7 @@ class KrrClient:
                 "--prometheus-url", self.prometheus_url,
                 "-n", namespace,
                 "--formatter", "json",  # KRR v1.x부터 --format이 아닌 --formatter (구 옵션명은 CLI 에러로 실패함)
+                "--cpu_percentile", "95",  
                 "--quiet",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
