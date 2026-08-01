@@ -12,6 +12,11 @@ class NamespaceAnalysisRequest(BaseModel):
     namespace: str = Field(default="prod", description="전수 분석할 쿠버네티스 네임스페이스")
     send_telegram: bool = Field(default=False, description="분석 후 텔레그램 승인 요청 메시지 다이렉트 전송 여부")
 
+# 1-2. 여러 네임스페이스를 한 번에 분석 요청하는 스키마
+class MultiNamespaceAnalysisRequest(BaseModel):
+    namespaces: List[str] = Field(default=["frontend", "backend", "default"], description="전수 분석할 쿠버네티스 네임스페이스 리스트")
+    send_telegram: bool = Field(default=False, description="분석 후 텔레그램 승인 요청 메시지 다이렉트 전송 여부")
+
 # 2. CPU/메모리 리소스 규격 정의
 class ResourceSpec(BaseModel):
     cpu: str = Field(..., description="CPU 요청량 (예: 1000m, 500m)")
@@ -71,3 +76,9 @@ class NamespaceAnalysisResponse(BaseModel):
     namespace: str = Field(..., description="분석한 Namespace")
     analyzed_count: int = Field(..., description="분석에 성공한 워크로드 수")
     results: List[AnalysisResponse] = Field(default=[], description="워크로드별 분석 결과 목록")
+
+# 9. 멀티 네임스페이스 전체 분석 응답 스키마
+class MultiNamespaceAnalysisResponse(BaseModel):
+    analyzed_namespaces_count: int = Field(..., description="분석을 시도한 Namespace 수")
+    total_analyzed_workloads_count: int = Field(..., description="전체 분석 성공 워크로드 수")
+    namespace_results: List[NamespaceAnalysisResponse] = Field(default=[], description="네임스페이스별 분석 결과 목록")

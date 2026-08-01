@@ -45,7 +45,7 @@ cronjob:
   enabled: true
   schedule: "0 3 * * *"  # 매일 새벽 3시 (Cron 표현식: 새벽 3시 0분)
   # KRR이 targetNamespace를 스캔해 발견하는 모든 워크로드를 /analyze/namespace로 한 번에 전수 분석합니다.
-  targetNamespace: "sample-fastapi"
+  targetNamespace: ""
 
 resources:
   limits:

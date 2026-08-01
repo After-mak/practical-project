@@ -27,16 +27,58 @@ STEP_SECONDS = 30
 SCENARIOS = {
     "sample-fastapi": {
         "container": "fastapi",
-        "cpu_avg_cores": 0.012,   # 현재 request 100m 대비 실사용 평균 ~12m -> 과다 프로비저닝 시나리오
+        "cpu_avg_cores": 0.012,
         "cpu_jitter": 0.5,
-        "mem_avg_mib": 42,        # 현재 request 128Mi 대비 실사용 평균 ~42Mi
+        "mem_avg_mib": 42,
         "mem_jitter_mib": 6,
     },
     "sample-worker": {
         "container": "worker",
-        "cpu_avg_cores": 0.07,    # 현재 request 361m 대비 실사용 평균 ~70m -> 과다 프로비저닝 시나리오
+        "cpu_avg_cores": 0.07,
         "cpu_jitter": 0.15,
-        "mem_avg_mib": 118,       # 현재 request 128Mi 대비 실사용 평균 ~118Mi
+        "mem_avg_mib": 118,
+        "mem_jitter_mib": 5,
+    },
+    "frontend": {
+        "container": "mak-container",
+        "cpu_avg_cores": 0.05,
+        "cpu_jitter": 0.2,
+        "mem_avg_mib": 40,
+        "mem_jitter_mib": 5,
+    },
+    "userservice": {
+        "container": "userservice",
+        "cpu_avg_cores": 0.02,
+        "cpu_jitter": 0.1,
+        "mem_avg_mib": 30,
+        "mem_jitter_mib": 5,
+    },
+    "ledgerwriter": {
+        "container": "ledgerwriter",
+        "cpu_avg_cores": 0.03,
+        "cpu_jitter": 0.1,
+        "mem_avg_mib": 150,
+        "mem_jitter_mib": 10,
+    },
+    "balancereader": {
+        "container": "balancereader",
+        "cpu_avg_cores": 0.03,
+        "cpu_jitter": 0.1,
+        "mem_avg_mib": 150,
+        "mem_jitter_mib": 10,
+    },
+    "transactionhistory": {
+        "container": "transactionhistory",
+        "cpu_avg_cores": 0.03,
+        "cpu_jitter": 0.1,
+        "mem_avg_mib": 150,
+        "mem_jitter_mib": 10,
+    },
+    "contacts": {
+        "container": "contacts",
+        "cpu_avg_cores": 0.02,
+        "cpu_jitter": 0.1,
+        "mem_avg_mib": 30,
         "mem_jitter_mib": 5,
     },
 }

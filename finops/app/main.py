@@ -7,6 +7,7 @@ from typing import Dict, Optional, Tuple
 from fastapi import FastAPI, HTTPException, status
 from app.schemas import (
     AnalysisRequest, AnalysisResponse, NamespaceAnalysisRequest, NamespaceAnalysisResponse,
+    MultiNamespaceAnalysisRequest, MultiNamespaceAnalysisResponse,
     ResourceSpec, PrometheusMetrics, ChronosForecast
 )
 from app.clients import KrrClient, PrometheusClient, ChronosClient, TelegramClient, KrrDbClient
@@ -360,4 +361,49 @@ async def analyze_namespace(request: NamespaceAnalysisRequest):
         namespace=request.namespace,
         analyzed_count=len(results),
         results=results
+    )
+
+@app.post("/analyze/all-namespaces", response_model=MultiNamespaceAnalysisResponse, status_code=status.HTTP_200_OK)
+async def analyze_all_namespaces(request: MultiNamespaceAnalysisRequest):
+    """
+    여러 네임스페이스에 대해 KRR이 발견한 모든 워크로드를 전수 분석합니다.
+    """
+    logger.info(f"Received multi-namespace analysis request: namespaces={request.namespaces} (send_telegram={request.send_telegram})")
+    
+    if not request.namespaces:
+        request.namespaces = ["frontend", "backend", "default"]
+
+    all_namespaces_results = []
+    total_analyzed = 0
+
+    # 각 네임스페이스별로 순회하며 기존 analyze 로직과 동일하게 처리
+    for ns in request.namespaces:
+        logger.info(f"Analyzing namespace: {ns}")
+        namespace_scan = await krr_client.get_namespace_recommendations(ns)
+        if not namespace_scan:
+            logger.warning(f"네임스페이스 '{ns}'에서 KRR이 발견한 워크로드가 없습니다.")
+            continue
+
+        results = []
+        for deployment_name, krr_data in namespace_scan.items():
+            try:
+                result = await _run_analysis(deployment_name, ns, request.send_telegram, krr_data=krr_data)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"'{ns}/{deployment_name}' 분석 중 오류 발생, 건너뜁니다: {str(e)}", exc_info=True)
+
+        if results:
+            total_analyzed += len(results)
+            all_namespaces_results.append(
+                NamespaceAnalysisResponse(
+                    namespace=ns,
+                    analyzed_count=len(results),
+                    results=results
+                )
+            )
+
+    return MultiNamespaceAnalysisResponse(
+        analyzed_namespaces_count=len(request.namespaces),
+        total_analyzed_workloads_count=total_analyzed,
+        namespace_results=all_namespaces_results
     )

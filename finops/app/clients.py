@@ -5,7 +5,7 @@ import time
 import asyncio
 import logging
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -73,16 +73,18 @@ class KrrClient:
         return result
 
     async def get_namespace_recommendations(self, namespace: str) -> Dict[str, dict]:
-        """
-        지정된 namespace 내 모든 워크로드의 현재/추천 리소스 설정을 한 번에 가져옵니다.
-        (CronJob의 네임스페이스 전수 분석 및 /analyze/namespace 엔드포인트에서 사용)
-        """
-        if MOCK_INTEGRATION:
-            logger.info(f"[KrrClient] Mock Mode - Generating namespace-wide mock data for {namespace}")
-            return dict(_MOCK_WORKLOADS)
-
+        """특정 네임스페이스 내 전체 워크로드들의 권장값을 한 번에 조회합니다."""
         namespace_scan = await self._scan_namespace(namespace)
         return namespace_scan or {}
+
+    async def get_all_namespace_recommendations(self, namespaces: List[str]) -> Dict[str, Dict[str, dict]]:
+        """여러 네임스페이스 내 전체 워크로드들의 권장값을 한 번에 조회합니다."""
+        results = {}
+        for ns in namespaces:
+            ns_result = await self.get_namespace_recommendations(ns)
+            if ns_result:
+                results[ns] = ns_result
+        return results
 
     async def _scan_namespace(self, namespace: str) -> Optional[Dict[str, dict]]:
         """KRR CLI를 비동기로 1회 실행해 namespace 내 모든 워크로드의 추천값을 조회하고 캐시합니다."""
