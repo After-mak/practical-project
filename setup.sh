@@ -2,9 +2,12 @@
 # 파일위치: /home/user1/practical-project/setup.sh
 set -e
 
+ROOT_DIR=$(pwd)
+
 # 파일 경로 정의
-TF_VARS_FILE="infra/terraform/terraform.tfvars"
-TF_DIR2="infra/terraform/init"
+TF_VARS_FILE="$ROOT_DIR/infra/terraform/envs/dev/terraform.tfvars"
+TF_DIR2="$ROOT_DIR/infra/terraform/init"
+TF_DEV_DIR="$ROOT_DIR/infra/terraform/envs/dev"
 
 # 파일 존재 여부 및 프로필 추출 검증
 if [ ! -f "$TF_VARS_FILE" ]; then
@@ -107,11 +110,15 @@ fi
 echo "📝 main 테라폼용 backend.hcl 설정 파일을 생성합니다..."
 
 # 지정된 고정 버킷명으로 backend.hcl 파일을 생성합니다.
-cat << EOF > ../init/backend.hcl
-bucket = "${BUCKET_NAME}"
+cat << EOF > "$TF_DEV_DIR/backend.hcl"
+# =============================================================
+# 이 파일은 setup.sh에 의해 자동으로 생성되었습니다.
+# 일과후 막걸리 팀 프로젝트 공용 백엔드 인증 프로필 설정
+# =============================================================
+profile = "${PROFILE_NAME}"
 EOF
 
-echo "✅ backend.hcl 생성이 완료되었습니다. (적용된 버킷: $BUCKET_NAME)"
+echo "✅ envs/dev/backend.hcl 생성이 완료되었습니다. (적용 프로필: $PROFILE_NAME)"
 
 echo "============================================================="
 echo "✅ 모든 초기 설정 및 backend.hcl 연동이 성공적으로 완료되었습니다!"

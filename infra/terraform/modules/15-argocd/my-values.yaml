@@ -1,0 +1,20 @@
+# ArgoCD 웹서버(ui) 의 네트워크 설정 전달하기
+server:
+  service:
+    # 외부 노출을 차단하고 Gateway API를 통해서만 진입 가능하도록 ClusterIP 고정
+    type: ClusterIP
+    # 기본 서비스 포트를 명확히 명시 (HTTPRoute 연결용)
+    servicePortHTTP: 80
+    
+  extraArgs:
+    # Gateway API가 앞단에서 라우팅 및 SSL 종단(Terminating)을 처리하므로, 
+    # 내부 웹서버는 안전하고 가벼운 HTTP 통신이 가능하도록 세팅
+    - --insecure
+
+configs:
+  secret:
+    # 테라폼의 bcrypt() 함수 대신 "사전에 계산된 고정 해시값"을 하드코딩하면
+    # 매번 배포할 때마다 변경사항(Drift)으로 인식되어 초기화되는 현상을 막을 수 있습니다.
+    # 비밀번호: @abcd1234
+    argocdServerAdminPassword: "$2y$05$i747r2gpHp7Z5STEI7bMKud.S/8UAgiBs2rTMFOx3EzozL.XeONKW"
+    argocdServerAdminPasswordMtime: "2026-07-25T00:00:00Z"

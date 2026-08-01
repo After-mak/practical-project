@@ -1,3 +1,4 @@
+#practical-project/.github/workflows/rollback-custom.yaml
 name: Custom Tag Rollback
 
 on:
@@ -23,7 +24,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
+          repository: After-mak/mak-argocd-deploy
           ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.GITOPS_TOKEN }}
 
       - name: Update image.tag in values.yaml
         run: |

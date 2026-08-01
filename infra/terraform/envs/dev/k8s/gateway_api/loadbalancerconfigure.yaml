@@ -1,0 +1,14 @@
+# alb의 sg를 설정하는 부분과 route 53 https 연결 같이 부가 설정을 담당하는 yaml
+apiVersion: gateway.k8s.aws/v1beta1
+kind: LoadBalancerConfiguration
+metadata:
+  name: my-gateway-lbconfig
+  namespace: default
+spec:
+  loadBalancerName: project03-alb
+  scheme: internet-facing
+  securityGroups: 
+    - project03-alb-sg
+  listenerConfigurations:
+    - protocolPort: HTTPS:443
+      defaultCertificate: "${certificate_arn}"

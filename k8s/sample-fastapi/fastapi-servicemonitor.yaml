@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-fastapi
+  namespace: sample-fastapi
+  labels:
+    monitoring: prometheus
+    app.kubernetes.io/name: sample-fastapi
+    app.kubernetes.io/component: api
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-fastapi
+      app.kubernetes.io/component: api
+  namespaceSelector:
+    matchNames:
+      - sample-fastapi
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

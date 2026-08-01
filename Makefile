@@ -5,10 +5,11 @@
 # =============================================================
 
 # ── 경로 및 환경 변수 설정 ──────────────────────────────────
-TF_DIR := infra/terraform
-TF_DIR2 := infra/terraform/init
-ANSIBLE_DIR  := infra/ansible
-TF_VARS_FILE := infra/terraform/terraform.tfvars
+TF_DEV_INFRA_DIR := infra/terraform/envs/dev/infra
+TF_DEV_K8S_DIR   := infra/terraform/envs/dev/k8s
+TF_INIT_DIR      := infra/terraform/init
+ANSIBLE_DIR      := infra/ansible
+TF_VARS_FILE     := infra/terraform/envs/dev/infra/terraform.tfvars
 
 # tfvars 파일에서 aws_profile 값을 자동으로 추출 (예: admin-jongwon)
 AWS_PROF := $(shell grep "aws_profile" $(TF_VARS_FILE) 2>/dev/null | cut -d'"' -f2)
@@ -19,10 +20,8 @@ CURRENT_USER := $(shell echo "$(AWS_PROF)" | sed 's/admin-//')
 export AWS_PROFILE := $(AWS_PROF)
 
 # 모든 명령어를 .PHONY에 등록하여 파일 이름 충돌 방지 (가독성을 위해 분할)
-.PHONY: help setup check init fmt validate plan apply apply-auto output destroy
-.PHONY: ping k8s ai monitor
-.PHONY: gitops-sync
-.PHONY: k6-test attack-test log-check
+.PHONY: help setup check init fmt validate plan apply apply-auto auto-apply verify-dev output destroy
+
 
 # 기본 명령어 (명령어 없이 make만 쳤을 때 가이드 출력)
 help:
@@ -37,20 +36,10 @@ help:
 	@echo "  make fmt           : 코드 스타일 정렬"
 	@echo "  make validate      : 문법 검사"
 	@echo "  make plan          : 인프라 변경사항 시뮬레이션"
-	@echo "  make apply-auto    : AWS 실제 배포 (승인 생략)"
+	@echo "  make apply         : AWS 실제 배포 (수동 승인)"
+	@echo "  make apply-auto    : AWS 실제 배포 (승인 생략 - 3단계 자동 진행)"
 	@echo "  make output        : 배포된 AWS 인프라 정보 확인"
 	@echo "  make destroy       : AWS 인프라 전체 삭제"
-	@echo " [Ansible - 온프레미스 & AI & 모니터링]"
-	@echo "  make ping      	: 온프레미스 서버 연결 상태 체크"
-	@echo "  make k8s       	: 온프레미스 Kubernetes 클러스터 구축"
-	@echo "  make ai        	: 로컬 LLM 및 AI 실행 환경 구성"
-	@echo "  make monitor   	: Prometheus/Grafana 모니터링 구축"
-	@echo " [CI/CD & GitOps]"
-	@echo "  make gitops-sync   : Argo CD 애플리케이션 수동 동기화"
-	@echo " [보안 및 가용성 검증]"
-	@echo "  make k6-test      	: k6 기반 부하 테스트 수행"
-	@echo "  make attack-test   : WAF 보안 정책 차단 테스트 (SQLi, XSS)"
-	@echo "  make log-check     : AI 이상 탐지용 통합 로그 스트리밍 확인"
 	@echo "============================================================="
 
 
@@ -64,43 +53,72 @@ check:
 
 # ── Terraform ────────────────────────────────────────────────
 init:
-	@echo "▶ 테라폼 백엔드 초기화 중..."
-	cd $(TF_DIR) && terraform init -backend-config=init/backend.hcl
+	@echo "▶ 테라폼 백엔드 초기화 중 (infra)..."
+	cd $(TF_DEV_INFRA_DIR) && terraform init -backend-config=backend.hcl
+	@echo "▶ 테라폼 백엔드 초기화 중 (k8s)..."
+	cd $(TF_DEV_K8S_DIR) && terraform init -backend-config=backend.hcl
 
 fmt:
 	@echo "▶ 테라폼 코드 포맷 정렬 중..."
-	cd $(TF_DIR) && terraform fmt -recursive
+	cd $(TF_DEV_INFRA_DIR) && terraform fmt -recursive
+	cd $(TF_DEV_K8S_DIR) && terraform fmt -recursive
 
 validate:
 	@echo "▶ 테라폼 문법 및 유효성 검사 중..."
-	cd $(TF_DIR) && terraform validate
+	cd $(TF_DEV_INFRA_DIR) && terraform validate
+	cd $(TF_DEV_K8S_DIR) && terraform validate
 
 plan:
 	@echo "▶ AWS 인프라 변경 예측(Plan) 실행 중..."
-	cd $(TF_DIR) && terraform plan
+	cd $(TF_DEV_INFRA_DIR) && terraform plan
+	cd $(TF_DEV_K8S_DIR) && terraform plan
 
 apply:
-	@echo "▶ AWS 인프라 실배포 진행 중 (수동 승인 필요)..."
-	cd $(TF_DIR) && terraform apply -parallelism=3
+	@echo "▶ AWS 기초 인프라 실배포 진행 중 (수동 승인 필요)..."
+	cd $(TF_DEV_INFRA_DIR) && terraform apply -parallelism=3
+	@echo "▶ Kubernetes 애플리케이션 실배포 진행 중 (수동 승인 필요)..."
+	cd $(TF_DEV_K8S_DIR) && terraform apply -parallelism=3
 
 apply-auto:
-	@echo "▶ AWS 인프라 고속 자동 배포 중 (FinOps 적용)..."
-	cd $(TF_DIR) && terraform apply --auto-approve -parallelism=3
+	@echo "▶ [1/3단계] AWS 기초 인프라 및 EKS 클러스터 구축 중..."
+	cd $(TF_DEV_INFRA_DIR) && terraform apply --auto-approve -parallelism=3
+
+	@echo "▶ [2/3단계] EKS 위에 ArgoCD 핵심 엔진(서버) 설치 중..."
+	cd $(TF_DEV_K8S_DIR) && terraform apply -target=module.argocd --auto-approve -parallelism=3
+	@echo "⏳ ArgoCD Pod 구동 대기 (30초)..."
+	sleep 30
+
+	@echo "▶ [3/3단계] ArgoCD Application 및 잔여 스택 전체 완공 중..."
+	cd $(TF_DEV_K8S_DIR) && terraform apply --auto-approve -parallelism=3
+	$(MAKE) verify-dev
+
+auto-apply: apply-auto
+
+verify-dev:
+	bash scripts/verify-dev-deployment.sh
 
 output:
-	@echo "▶ 배포된 AWS 리소스 정보(ALB/EKS/ECR/WAF) 출력..."
-	cd $(TF_DIR) && terraform output
+	@echo "▶ 배포된 AWS 리소스 정보 출력..."
+	cd $(TF_DEV_INFRA_DIR) && terraform output
 
 destroy:
+	@echo "argocd에 배포되어있는 target group 및 HTTP route 삭제 "
+	kubectl delete applications --all -n argocd
+	@sleep 30
 	@echo "⚠️  주의: AWS 인프라 자원 삭제중..."
-	cd $(TF_DIR) && terraform destroy --auto-approve 
-
+	@echo "▶ [1/2단계] Kubernetes 내부 애플리케이션(ArgoCD 등) 삭제 중..."
+	cd $(TF_DEV_K8S_DIR) && terraform destroy "-target=kubectl_manifest.gateway" "-target=kubectl_manifest.gatewayclass" "-target=kubectl_manifest.lb_config" -auto-approve
+	@sleep 180
+	cd $(TF_DEV_K8S_DIR) && terraform destroy --auto-approve
+	@echo "▶ [2/2단계] AWS 기본 인프라(EKS, VPC 등) 삭제 중..."
+	cd $(TF_DEV_INFRA_DIR) && terraform destroy --auto-approve 
 
 # ── Ansible ───────────────────────────────────────────────────	
 
 
 
 # ── GitOps  ───────────────────────────────────────────────────
+
 
 
 

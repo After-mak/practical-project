@@ -1,0 +1,67 @@
+name: Build KRR Demo Seed Image
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - feature/finops
+    paths:
+      - "finops/scripts/**"
+      - ".github/workflows/krr-demo-seed-ecr.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krr-demo-seed-ecr
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: krr-demo-seed
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout application source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Confirm KRR Demo Seed ECR repository
+        run: |
+          aws ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION"
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push KRR demo seed image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: v0.1.${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          IMAGE_URI_VERSIONED="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          IMAGE_URI_LATEST="$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+          # 빌드 컨텍스트는 finops/scripts/ (Dockerfile의 COPY 대상인
+          # generate_krr_dummy_history.py, seed_init_entrypoint.sh가 이 안에 있음).
+          docker build -f finops/scripts/seed-image/Dockerfile \
+            -t "$IMAGE_URI_VERSIONED" -t "$IMAGE_URI_LATEST" \
+            finops/scripts/
+
+          docker push "$IMAGE_URI_VERSIONED"
+          docker push "$IMAGE_URI_LATEST"

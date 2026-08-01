@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "finops.fullname" . }}-krr-reader
+  labels:
+    {{- include "finops.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "finops.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "finops.fullname" . }}-krr-reader
+  apiGroup: rbac.authorization.k8s.io
