@@ -81,6 +81,13 @@ SCENARIOS = {
         "mem_avg_mib": 30,
         "mem_jitter_mib": 5,
     },
+    "tg-gateway-deployment": {
+        "container": "tg-gateway",
+        "cpu_avg_cores": 0.05,
+        "cpu_jitter": 0.02,
+        "mem_avg_mib": 100,
+        "mem_jitter_mib": 10,
+    },
 }
 
 

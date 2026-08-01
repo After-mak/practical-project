@@ -73,4 +73,28 @@ seed_boa "balancereader" "balancereader" "backend"
 seed_boa "transactionhistory" "transactionhistory" "backend"
 seed_boa "contacts" "contacts" "backend"
 
+seed_tg_gateway() {
+  deployment="tg-gateway-deployment"
+  app_label="tg-gateway"
+  namespace="default"
+
+  pod_name=$(kubectl get pods -n "$namespace" \
+    -l "app.kubernetes.io/instance=${app_label}" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+  if [ -z "$pod_name" ]; then
+    echo "[seed-init] '${deployment}' 파드를 아직 못 찾음 - 스킵"
+    return 0
+  fi
+
+  echo "[seed-init] ${deployment} -> 실제 파드 '${pod_name}' 기준으로 생성"
+  om_file="/tmp/${deployment}.om"
+  python3 /opt/krr-seed/generate_krr_dummy_history.py \
+    --namespace "$namespace" --deployment "$deployment" --pod "$pod_name" \
+    --days "$SEED_DAYS" --profile "krr-rightsizing" --output "$om_file"
+
+  promtool tsdb create-blocks-from openmetrics "$om_file" "$TSDB_PATH"
+}
+seed_tg_gateway
+
 echo "[seed-init] 완료"
