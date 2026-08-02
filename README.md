@@ -80,7 +80,7 @@ practical-project/
 └── 🛠️ Root Scripts & Configs      # 로컬 개발 및 제어 스크립트
     ├── docker-compose.yml          # 로컬 컨테이너 실행 환경
     ├── Makefile / setup.sh         # 프로젝트 설정 및 자동화 명령
-    └── check.sh / memo.md          # 점검 스크립트 및 메모
+    └── memo.md                     # 메모
 ```
 
 ## 🔐 Repository Secrets
