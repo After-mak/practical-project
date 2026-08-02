@@ -94,3 +94,11 @@ GitHub Actions 워크플로우 실행 및 GitOps/ECR 연동을 위해 설정된 
 | `GITOPS_TOKEN` | ECR 이미지 푸시 및 GitOps CI/CD 파이프라인 전용 AWS IAM 액세스 토큰 | 
 
 ---
+
+### 👥 IAM 계정 권한 및 운용 체계
+
+본 프로젝트는 단일 AWS Root 계정 환경에서 최소 권한 원칙(Principle of Least Privilege)을 준수하여 IAM 유저를 분리·운용
+
+* **팀원 개인 계정 (7명):** 팀원 7명(임종원, 이성규, 김민규, 송민기, 한윤성, 최상우, 오영식)은 각각 개별 IAM User 계정을 할당받아 인프라 구축 및 개발 작업 역할에 맞게 분업 진행
+* **CI/CD 전용 봇 계정 (1개):** GitHub Actions 워크플로우 및 GitOps 파이프라인 자동화를 위해 팀원 개인 계정과 분리된 `ECR 전용 IAM Bot 계정`을 별도로 생성
+  * 해당 봇 계정에는 보안 최적화를 위해 **Amazon ECR 권한만 최소한으로 부여**하여 Secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `GITOPS_TOKEN`)로 안전하게 관리
