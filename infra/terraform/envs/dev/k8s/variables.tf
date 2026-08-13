@@ -20,16 +20,16 @@ variable "grafana_admin_password" {
   }
 }
 
-variable "jwt_private_key" {
-  description = "jwt_private_key"
+variable "bank_jwt_secretsmanager_name" {
+  description = "교체용 Bank of Anthos JWT 키 쌍이 저장된 AWS Secrets Manager 이름"
   type        = string
-  sensitive   = true
+  default     = "project03/bank-of-anthos/jwt-v2"
 }
 
-variable "jwt_public_key" {
-  description = "jwt_public_key"
+variable "bank_jwt_kubernetes_secret_name" {
+  description = "Frontend/Backend가 공통으로 참조할 교체용 Kubernetes Secret 이름"
   type        = string
-  sensitive   = true
+  default     = "bank-jwt-key-v2"
 }
 
 variable "enable_krr_demo_seed" {

@@ -35,6 +35,8 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     serviceMonitorSelector: {}
     serviceMonitorNamespaceSelector: {}
+    # 승인된 k6 Job이 내부 /api/v1/write로 성능 지표를 전송할 수 있게 합니다.
+    enableRemoteWriteReceiver: true
     resources:
       requests:
         cpu: 200m
