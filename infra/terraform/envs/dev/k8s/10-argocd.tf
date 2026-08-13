@@ -55,8 +55,7 @@ module "argocd_deploy" {
   sample_fastapi_redis_host        = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
   sample_fastapi_redis_port        = data.terraform_remote_state.infra.outputs.redis_port
 
-  jwt_private_key = var.jwt_private_key
-  jwt_public_key  = var.jwt_public_key
+  bank_jwt_secret_name = var.bank_jwt_kubernetes_secret_name
 
   enable_krr_demo_seed = var.enable_krr_demo_seed
   krr_demo_seed_image  = var.enable_krr_demo_seed ? "${data.aws_ecr_repository.krr_demo_seed[0].repository_url}:latest" : ""
@@ -66,6 +65,7 @@ module "argocd_deploy" {
   depends_on = [
     module.argocd,
     kubectl_manifest.ebs_gp3_storage_class,
+    kubernetes_secret_v1.bank_jwt,
     time_sleep.wait_for_gateway_cleanup
   ]
 }

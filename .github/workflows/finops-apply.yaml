@@ -26,6 +26,10 @@ on:
       deployment_name:
         description: '대상 Deployment 이름'
         required: true
+      container_name:
+        description: '대상 컨테이너 이름(Bank workload는 필수)'
+        required: false
+        default: ''
       cpu:
         description: '적용할 CPU request (예: 250m)'
         required: true
@@ -44,23 +48,40 @@ jobs:
         id: map
         env:
           DEPLOYMENT_NAME: ${{ github.event.inputs.deployment_name }}
+          CONTAINER_NAME: ${{ github.event.inputs.container_name }}
+          NAMESPACE: ${{ github.event.inputs.namespace }}
         run: |
           set -euo pipefail
 
-          # deployment_name -> (values.yaml 위치, 그 안에서 resources가 있는 yq 경로)
-          case "$DEPLOYMENT_NAME" in
-            sample-fastapi)
+          # namespace/workload/container -> values.yaml의 정확한 requests 경로
+          case "$NAMESPACE/$DEPLOYMENT_NAME/$CONTAINER_NAME" in
+            sample-fastapi/sample-fastapi/*)
               VALUES_FILE="charts/sample-fastapi/values.yaml"
               RESOURCES_PATH=".fastapi.resources.requests"
               ;;
-            sample-worker)
+            sample-fastapi/sample-worker/*)
               VALUES_FILE="charts/sample-fastapi/values.yaml"
               RESOURCES_PATH=".worker.resources.requests"
               ;;
+            frontend/mak-app-rollout/mak-container)
+              VALUES_FILE="charts/mak-app/values.yaml"
+              RESOURCES_PATH=".resources.frontend.requests"
+              ;;
+            backend/userservice/userservice|backend/contacts/contacts|backend/balancereader/balancereader|backend/ledgerwriter/ledgerwriter|backend/transactionhistory/transactionhistory)
+              VALUES_FILE="charts/mak-app/values.yaml"
+              RESOURCES_PATH=".resources.${DEPLOYMENT_NAME}.app.requests"
+              ;;
+            backend/userservice/worker|backend/contacts/worker|backend/balancereader/worker|backend/ledgerwriter/worker|backend/transactionhistory/worker)
+              VALUES_FILE="charts/mak-app/values.yaml"
+              RESOURCES_PATH=".resources.${DEPLOYMENT_NAME}.worker.requests"
+              ;;
+            frontend/mak-app-rollout/|backend/userservice/|backend/contacts/|backend/balancereader/|backend/ledgerwriter/|backend/transactionhistory/)
+              echo "::error::Bank workload에는 container_name이 필수입니다."
+              exit 1
+              ;;
             *)
-              # 매핑에 없는 이름은 finops/mak-app처럼 최상위 resources.requests 구조로 가정
-              VALUES_FILE="charts/${DEPLOYMENT_NAME}/values.yaml"
-              RESOURCES_PATH=".resources.requests"
+              echo "::error::지원하지 않는 리소스 식별자: ${NAMESPACE}/${DEPLOYMENT_NAME}/${CONTAINER_NAME}"
+              exit 1
               ;;
           esac
 

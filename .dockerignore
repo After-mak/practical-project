@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/.terraform
+**/.terraform.lock.hcl
+artifacts
+k6/results
+.venv
+venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/node_modules

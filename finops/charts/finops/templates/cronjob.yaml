@@ -34,7 +34,7 @@ spec:
                   echo "Analyzing namespace: {{ . }}"
                   curl -sf --max-time 600 -X POST "http://{{ include "finops.fullname" $ }}:{{ $.Values.service.port }}/analyze/namespace" \
                     -H "Content-Type: application/json" \
-                    -d '{"namespace": "{{ . }}", "send_telegram": true}' \
+                    -d '{"namespace": "{{ . }}", "history_duration": "{{ $.Values.cronjob.historyDuration }}", "send_telegram": true}' \
                     || echo "ERROR: namespace '{{ . }}' 분석 실패"
                   {{- end }}
 {{- end }}

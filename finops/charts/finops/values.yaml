@@ -1,9 +1,10 @@
 replicaCount: 1
+nodeSelector:
+  role: management
 
 image:
-  # Replace with your container registry URI where the image is pushed
-  repository: <YOUR_REGISTRY>/finops-analyzer
-  pullPolicy: Always
+  repository: 372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/finops-analyzer
+  pullPolicy: IfNotPresent
   tag: "latest"
 
 service:
@@ -44,12 +45,9 @@ telegram:
 cronjob:
   enabled: true
   schedule: "0 3 * * *"  # 매일 새벽 3시 (Cron 표현식: 새벽 3시 0분)
-  # KRR이 targetNamespaces 각각을 스캔해 발견하는 모든 워크로드를 /analyze/namespace로 전수 분석합니다.
-  # 네임스페이스 개수만큼 /analyze/namespace를 순차 호출합니다 (sample-fastapi: sample-fastapi/sample-worker,
-  # backend: Bank of Anthos userservice/contacts/ledgerwriter/balancereader/transactionhistory).
-  targetNamespaces:
-    - "sample-fastapi"
-    - "backend"
+  # KRR이 targetNamespaces를 스캔해 발견하는 모든 워크로드를 /analyze/namespace로 한 번에 전수 분석합니다.
+  targetNamespaces: ["frontend", "backend"]
+  historyDuration: "336h"
 
 resources:
   limits:

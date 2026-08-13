@@ -13,10 +13,8 @@ logger = logging.getLogger(__name__)
 # 조용히 가짜 데이터로 동작하는 대신, krr 실행/Prometheus 연결이 실패하며 바로 드러나게 함
 MOCK_INTEGRATION = os.getenv("MOCK_INTEGRATION", "false").lower() == "true"
 
-# KRR 결과 TTL 캐시 (Key: namespace, Value: (전체 스캔 결과 dict, cached_at))
-# KRR CLI는 -n <namespace> 옵션으로 실행 시 네임스페이스 내 모든 워크로드를 한 번에 스캔하므로
-# deployment 단위가 아닌 namespace 단위로 캐시해서 반복 호출 시 KRR 재실행을 피합니다.
-_krr_cache: Dict[str, tuple] = {}
+# KRR cache key includes namespace and explicit history duration.
+_krr_cache: Dict[tuple[str, str], tuple] = {}
 KRR_CACHE_TTL_SECONDS = 300  # 5분 캐시 유지
 
 # Mock 모드에서 시나리오 테스트용으로 제공하는 고정 워크로드 목록
@@ -53,86 +51,112 @@ class KrrClient:
       불필요한 KRR 재실행 방지. 단일 deployment 조회도 내부적으로는 네임스페이스 전체를 스캔한 뒤
       필요한 항목만 추출하므로, 같은 네임스페이스라면 캐시가 공유됩니다.
     """
-    def __init__(self, prometheus_url: str = ""):
+    def __init__(self, prometheus_url: str = "", history_duration: str = ""):
         self.prometheus_url = prometheus_url.rstrip("/")
+        self.history_duration = history_duration or os.getenv("KRR_HISTORY_DURATION", "336h")
 
-    async def get_recommendation(self, deployment_name: str, namespace: str) -> Optional[dict]:
-        """
-        지정된 namespace를 스캔하여 특정 deployment의 현재/추천 리소스 설정을 가져옵니다.
-        """
+    async def get_recommendation(
+        self,
+        deployment_name: str,
+        namespace: str,
+        container_name: Optional[str] = None,
+        history_duration: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Return one container recommendation; ambiguous workload-only lookups fail."""
         if MOCK_INTEGRATION:
-            logger.info(f"[KrrClient] Mock Mode - Generating mock data for {deployment_name} in {namespace}")
-            return _MOCK_WORKLOADS.get(deployment_name, _MOCK_DEFAULT)
+            value = dict(_MOCK_WORKLOADS.get(deployment_name, _MOCK_DEFAULT))
+            value.update({"namespace": namespace, "workload": deployment_name, "container": container_name or deployment_name})
+            return value
 
-        namespace_scan = await self._scan_namespace(namespace)
+        namespace_scan = await self._scan_namespace(namespace, history_duration)
         if namespace_scan is None:
             return None
-        result = namespace_scan.get(deployment_name)
-        if result is None:
-            logger.warning(f"[KrrClient] KRR 결과에서 '{deployment_name}' (ns: {namespace})을 찾지 못했습니다.")
-        return result
+        if container_name:
+            return namespace_scan.get(f"{namespace}/{deployment_name}/{container_name}")
+        candidates = [value for value in namespace_scan.values() if value["workload"] == deployment_name]
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            logger.error(
+                "[KrrClient] '%s/%s' has %d containers; container_name is required.",
+                namespace, deployment_name, len(candidates),
+            )
+        else:
+            logger.warning("[KrrClient] KRR result missing for '%s/%s'.", namespace, deployment_name)
+        return None
 
-    async def get_namespace_recommendations(self, namespace: str) -> Dict[str, dict]:
-        """
-        지정된 namespace 내 모든 워크로드의 현재/추천 리소스 설정을 한 번에 가져옵니다.
-        (CronJob의 네임스페이스 전수 분석 및 /analyze/namespace 엔드포인트에서 사용)
-        """
+    async def get_namespace_recommendations(
+        self, namespace: str, history_duration: Optional[str] = None
+    ) -> Dict[str, dict]:
+        """Return namespace/workload/container keyed recommendations."""
         if MOCK_INTEGRATION:
-            logger.info(f"[KrrClient] Mock Mode - Generating namespace-wide mock data for {namespace}")
-            return dict(_MOCK_WORKLOADS)
-
-        namespace_scan = await self._scan_namespace(namespace)
+            return {
+                f"{namespace}/{name}/{name}": {
+                    **value, "namespace": namespace, "workload": name, "container": name,
+                }
+                for name, value in _MOCK_WORKLOADS.items()
+            }
+        namespace_scan = await self._scan_namespace(namespace, history_duration)
         return namespace_scan or {}
 
-    async def _scan_namespace(self, namespace: str) -> Optional[Dict[str, dict]]:
-        """KRR CLI를 비동기로 1회 실행해 namespace 내 모든 워크로드의 추천값을 조회하고 캐시합니다."""
+    async def _scan_namespace(
+        self, namespace: str, history_duration: Optional[str] = None
+    ) -> Optional[Dict[str, dict]]:
+        """Run KRR once for one namespace and an explicit history duration."""
+        duration = history_duration or self.history_duration
+        match = re.fullmatch(r"([1-9][0-9]*)(h|d|w)?", duration)
+        if not match:
+            raise ValueError(f"invalid KRR history_duration: {duration!r}; use hours (24 or 24h), days, or weeks")
+        amount = int(match.group(1))
+        unit = match.group(2) or "h"
+        duration_hours = str(amount * {"h": 1, "d": 24, "w": 168}[unit])
+        cache_key = (namespace, duration_hours)
         now = time.monotonic()
-        if namespace in _krr_cache:
-            cached_result, cached_at = _krr_cache[namespace]
+        if cache_key in _krr_cache:
+            cached_result, cached_at = _krr_cache[cache_key]
             if now - cached_at < KRR_CACHE_TTL_SECONDS:
-                logger.info(f"[KrrClient] Cache hit ({int(now - cached_at)}s ago): namespace={namespace}")
+                logger.info(
+                    "[KrrClient] Cache hit (%ss ago): namespace=%s history=%s",
+                    int(now - cached_at), namespace, duration_hours,
+                )
                 return cached_result
 
-        logger.info(f"[KrrClient] KRR CLI 비동기 실행 중 (namespace: {namespace})")
+        logger.info("[KrrClient] KRR scan: namespace=%s history=%s", namespace, duration_hours)
         try:
             proc = await asyncio.create_subprocess_exec(
                 "krr", "simple",
                 "--prometheus-url", self.prometheus_url,
                 "-n", namespace,
-                "--formatter", "json",  # KRR v1.x부터 --format이 아닌 --formatter (구 옵션명은 CLI 에러로 실패함)
+                "--formatter", "json",
+                "--cpu_percentile", "95",
+                "--history_duration", duration_hours,
                 "--quiet",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
-
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             except asyncio.TimeoutError:
                 proc.kill()
-                await proc.communicate()  # 프로세스 정리
-                logger.error("[KrrClient] KRR CLI 실행 타임아웃 (120초 초과)")
+                await proc.communicate()
+                logger.error("[KrrClient] KRR CLI timed out after 120 seconds")
                 return None
-
             if proc.returncode != 0:
-                logger.error(f"[KrrClient] KRR CLI 실행 실패 (exit code {proc.returncode}): {stderr.decode()[:500]}")
+                logger.error(
+                    "[KrrClient] KRR CLI failed (exit %s): %s",
+                    proc.returncode, stderr.decode()[:500],
+                )
                 return None
-
-            data = json.loads(stdout.decode())
-            result = self._parse_krr_output(data, namespace)
-
-            # 성공 시 캐시 저장 (빈 결과라도 재스캔 방지를 위해 캐시)
-            _krr_cache[namespace] = (result, now)
-            logger.info(f"[KrrClient] 결과 캐시 저장: namespace={namespace} ({len(result)}개 워크로드, TTL: {KRR_CACHE_TTL_SECONDS}s)")
-
+            result = self._parse_krr_output(json.loads(stdout.decode()), namespace)
+            _krr_cache[cache_key] = (result, now)
+            logger.info("[KrrClient] cached %d container recommendations", len(result))
             return result
-
         except FileNotFoundError:
-            logger.error("[KrrClient] 'krr' 명령어를 찾을 수 없습니다. robusta-krr 패키지 설치 확인 필요.")
-        except json.JSONDecodeError as e:
-            logger.error(f"[KrrClient] KRR JSON 파싱 실패: {e}")
-        except Exception as e:
-            logger.error(f"[KrrClient] KRR 실행 중 예외: {e}")
-
+            logger.error("[KrrClient] krr executable was not found")
+        except json.JSONDecodeError as exc:
+            logger.error("[KrrClient] failed to parse KRR JSON: %s", exc)
+        except Exception as exc:
+            logger.error("[KrrClient] KRR execution failed: %s", exc)
         return None
 
     def _parse_krr_output(self, data, namespace: str) -> Dict[str, dict]:
@@ -151,9 +175,11 @@ class KrrClient:
             if obj.get("namespace") != namespace:
                 continue
             name = obj.get("name")
-            if not name:
+            container = obj.get("container")
+            if not name or not container:
+                logger.warning("[KrrClient] skipping KRR row without workload/container: %s", obj)
                 continue
-
+            identifier = f"{namespace}/{name}/{container}"
             recommended = scan.get("recommended", {}) or {}
             current_alloc = obj.get("allocations", {}) or {}
 
@@ -161,7 +187,11 @@ class KrrClient:
             curr_requests = current_alloc.get("requests", {}) or {}
             curr_limits = current_alloc.get("limits", {}) or {}
 
-            results[name] = {
+            results[identifier] = {
+                "namespace": namespace,
+                "workload": name,
+                "container": container,
+                "kind": obj.get("kind"),
                 "current": {
                     "cpu": self._format_resource_value(curr_requests.get("cpu"), "cpu") or "0m",
                     "memory": self._format_resource_value(curr_requests.get("memory"), "memory") or "0Mi"
@@ -187,8 +217,21 @@ class KrrClient:
         나타내기 위해 None을 반환합니다 — 임의의 숫자로 추측해서 채우지 않습니다."""
         if isinstance(val, dict):
             val = val.get("value")
-        if val is None or isinstance(val, str):
+        if val is None:
             return None
+        if isinstance(val, str):
+            val = val.strip()
+            if not val or val == "?":
+                return None
+            if resource == "cpu" and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?[num]", val):
+                return val
+            if resource == "memory" and re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:[KMGTPE]i?|m)", val):
+                return val
+            try:
+                val = float(val)
+            except ValueError:
+                logger.warning("[KrrClient] unsupported %s resource value: %r", resource, val)
+                return None
         val = float(val)
         if resource == "cpu":
             if val < 1.0:
@@ -212,7 +255,7 @@ class PrometheusClient:
         해석되어 엉뚱한 파드까지 매치되거나 PromQL 파싱이 깨지는 것을 방지합니다."""
         return "^" + re.escape(deployment_name) + "-[a-z0-9]+-[a-z0-9]+$"
 
-    def get_current_resource_spec(self, deployment_name: str, namespace: str) -> Optional[dict]:
+    def get_current_resource_spec(self, deployment_name: str, namespace: str, container_name: Optional[str] = None) -> Optional[dict]:
         """
         Prometheus 메트릭(kube_pod_container_resource_requests 또는 cAdvisor)으로부터 
         현재 워크로드의 실제 설정/사용량 CPU 및 Memory 데이터를 직접 수집합니다.
@@ -224,12 +267,14 @@ class PrometheusClient:
         try:
             logger.info(f"[PrometheusClient] Querying current CPU/Mem resource specs from Prometheus")
             pod_regex = self._pod_regex(deployment_name)
+            container_filter = f', container="{container_name}"' if container_name else ''
+            usage_filter = container_filter or ', container!="", container!="POD"'
             # Pod의 CPU Request 수치 쿼리 (코어 단위)
-            cpu_req_query = f'avg(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{pod_regex}"}})'
+            cpu_req_query = f'avg(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{pod_regex}"{container_filter}}})'
             cpu_val = self._query_prometheus(cpu_req_query)
 
             # Pod의 Memory Request 수치 쿼리 (Byte 단위)
-            mem_req_query = f'avg(kube_pod_container_resource_requests{{resource="memory", namespace="{namespace}", pod=~"{pod_regex}"}})'
+            mem_req_query = f'avg(kube_pod_container_resource_requests{{resource="memory", namespace="{namespace}", pod=~"{pod_regex}"{container_filter}}})'
             mem_val = self._query_prometheus(mem_req_query)
 
             if cpu_val is not None and mem_val is not None:
@@ -248,7 +293,7 @@ class PrometheusClient:
 
         return None
 
-    def get_workload_metrics(self, deployment_name: str, namespace: str) -> Optional[dict]:
+    def get_workload_metrics(self, deployment_name: str, namespace: str, container_name: Optional[str] = None) -> Optional[dict]:
         """
         Prometheus로부터 최근 워크로드의 OOM Kill 발생 여부, Restart 횟수, 평균 CPU 로드를 조회합니다.
         """
@@ -294,20 +339,22 @@ class PrometheusClient:
 
         try:
             pod_regex = self._pod_regex(deployment_name)
+            container_filter = f', container="{container_name}"' if container_name else ''
+            usage_filter = container_filter or ', container!="", container!="POD"'
             # 1. OOM Killed 이벤트 쿼리
-            oom_query = f'sum(increase(kube_pod_container_status_terminated_reason{{namespace="{namespace}", pod=~"{pod_regex}", reason="OOMKilled"}}[24h]))'
+            oom_query = f'sum(increase(kube_pod_container_status_terminated_reason{{namespace="{namespace}", pod=~"{pod_regex}"{container_filter}, reason="OOMKilled"}}[24h]))'
             oom_res = self._query_prometheus(oom_query)
             if oom_res and oom_res > 0:
                 metrics["oom_killed"] = True
 
             # 2. Pod 재시작 횟수 쿼리
-            restart_query = f'sum(kube_pod_container_status_restarts_total{{namespace="{namespace}", pod=~"{pod_regex}"}})'
+            restart_query = f'sum(kube_pod_container_status_restarts_total{{namespace="{namespace}", pod=~"{pod_regex}"{container_filter}}})'
             restart_res = self._query_prometheus(restart_query)
             if restart_res is not None:
                 metrics["restart_count"] = int(restart_res)
 
             # 3. 평균 CPU 사용률 (%) 쿼리
-            cpu_query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~"{pod_regex}", container!=""}}[5m])) / sum(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{pod_regex}"}}) * 100'
+            cpu_query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}", pod=~"{pod_regex}"{usage_filter}}}[5m])) / sum(kube_pod_container_resource_requests{{resource="cpu", namespace="{namespace}", pod=~"{pod_regex}"{container_filter}}}) * 100'
             cpu_res = self._query_prometheus(cpu_query)
             if cpu_res is not None:
                 metrics["avg_cpu_usage_pct"] = round(float(cpu_res), 2)
@@ -391,7 +438,8 @@ class TelegramClient:
         message_text: str,
         overall_status: str,
         deployment_name: str = "",
-        namespace: str = ""
+        namespace: str = "",
+        container_name: str = ""
     ) -> bool:
         if not self.bot_token or not self.chat_id:
             logger.warning("[TelegramClient] TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID가 설정되지 않아 발송을 스킵합니다.")
@@ -407,7 +455,7 @@ class TelegramClient:
 
         # PASS 상태인 경우 운영자 승인/거부 인라인 키보드 버튼 첨부 (워크로드 컨텍스트 포함)
         if overall_status == "PASS":
-            context_suffix = f":{namespace}:{deployment_name}" if namespace and deployment_name else ""
+            context_suffix = f":{namespace}:{deployment_name}:{container_name}" if namespace and deployment_name and container_name else ""
             payload["reply_markup"] = {
                 "inline_keyboard": [[
                     {"text": "✅ 승인 (Apply)", "callback_data": f"infra_approve{context_suffix}"},
@@ -460,6 +508,7 @@ class KrrDbClient:
             return
         cur.execute("""
             ALTER TABLE krr_logs
+                ADD COLUMN IF NOT EXISTS container_name VARCHAR(255) NOT NULL DEFAULT '',
                 ADD COLUMN IF NOT EXISTS cost_savings_pct DOUBLE PRECISION,
                 ADD COLUMN IF NOT EXISTS cost_savings_amount DOUBLE PRECISION,
                 ADD COLUMN IF NOT EXISTS cpu_utilization_pct DOUBLE PRECISION,
@@ -472,6 +521,7 @@ class KrrDbClient:
         self,
         namespace: str,
         deployment_name: str,
+        container_name: str,
         cpu_current: str,
         cpu_recommended: str,
         mem_current: str,
@@ -493,7 +543,7 @@ class KrrDbClient:
                     self._ensure_schema(cur)
                     query = """
                         INSERT INTO krr_logs (
-                            namespace, deployment_name,
+                            namespace, deployment_name, container_name,
                             cpu_current, cpu_recommended,
                             mem_current, mem_recommended,
                             cost_savings_pct, cost_savings_amount,
@@ -503,6 +553,7 @@ class KrrDbClient:
                     cur.execute(query, (
                         namespace,
                         deployment_name,
+                        container_name,
                         str(cpu_current),
                         str(cpu_recommended),
                         str(mem_current),
@@ -514,7 +565,7 @@ class KrrDbClient:
                         throttled
                     ))
                 conn.commit()
-            logger.info(f"[KrrDbClient] Successfully inserted log for '{namespace}/{deployment_name}' into krr_logs table!")
+            logger.info(f"[KrrDbClient] Successfully inserted log for '{namespace}/{deployment_name}/{container_name}' into krr_logs table!")
             return True
         except ImportError:
             logger.error("[KrrDbClient] psycopg2-binary 라이브러리가 설치되지 않았습니다.")

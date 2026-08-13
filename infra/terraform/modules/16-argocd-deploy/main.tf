@@ -103,13 +103,15 @@ spec:
           backend: false
           frontend: true
         secrets:
-          jwtPrivateKey: |
-            ${indent(12, var.jwt_private_key)}
-          jwtPublicKey: |
-            ${indent(12, var.jwt_public_key)}
+          existingSecret: ${var.bank_jwt_secret_name}
   destination:
     server: https://kubernetes.default.svc
     namespace: frontend
+  ignoreDifferences:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      jqPathExpressions:
+        - .spec.rules[].backendRefs[].weight
   syncPolicy:
     automated:
       prune: true
@@ -141,10 +143,7 @@ spec:
           backend: true
           frontend: false
         secrets:
-          jwtPrivateKey: |
-            ${indent(12, var.jwt_private_key)}
-          jwtPublicKey: |
-            ${indent(12, var.jwt_public_key)}
+          existingSecret: ${var.bank_jwt_secret_name}
   destination:
     server: https://kubernetes.default.svc
     namespace: backend
