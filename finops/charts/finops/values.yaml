@@ -1,9 +1,10 @@
 replicaCount: 1
+nodeSelector:
+  role: management
 
 image:
-  # Replace with your container registry URI where the image is pushed
-  repository: <YOUR_REGISTRY>/finops-analyzer
-  pullPolicy: Always
+  repository: 372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/finops-analyzer
+  pullPolicy: IfNotPresent
   tag: "latest"
 
 service:
@@ -44,7 +45,7 @@ telegram:
 cronjob:
   enabled: true
   schedule: "0 3 * * *"  # 매일 새벽 3시 (Cron 표현식: 새벽 3시 0분)
-  # KRR이 targetNamespace를 스캔해 발견하는 모든 워크로드를 /analyze/namespace로 한 번에 전수 분석합니다.
+  # KRR이 targetNamespaces를 스캔해 발견하는 모든 워크로드를 /analyze/namespace로 한 번에 전수 분석합니다.
   targetNamespaces: ["frontend", "backend"]
   historyDuration: "336h"
 
