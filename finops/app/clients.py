@@ -303,25 +303,29 @@ class PrometheusClient:
                 return {
                     "oom_killed": True,       # OOM 발생 시나리오
                     "restart_count": 2,
-                    "avg_cpu_usage_pct": 72.5
+                    "avg_cpu_usage_pct": 72.5,
+                    "throttled": True          # OOM과 함께 CPU도 압박받는 시나리오
                 }
             elif deployment_name == "unstable-api":
                 return {
                     "oom_killed": False,
                     "restart_count": 15,      # 재시작 10회 이상 시나리오
-                    "avg_cpu_usage_pct": 40.0
+                    "avg_cpu_usage_pct": 40.0,
+                    "throttled": False
                 }
             elif deployment_name == "stable-optimized-api":
                 return {
                     "oom_killed": False,
                     "restart_count": 0,
-                    "avg_cpu_usage_pct": 12.0 # 저부하 경부하 시나리오
+                    "avg_cpu_usage_pct": 12.0, # 저부하 경부하 시나리오
+                    "throttled": False
                 }
             else: # 일반 정상 최적화 케이스 (payment-api 등)
                 return {
                     "oom_killed": False,
                     "restart_count": 0,
-                    "avg_cpu_usage_pct": 35.0
+                    "avg_cpu_usage_pct": 35.0,
+                    "throttled": False
                 }
 
         # 실제 Prometheus REST API (/api/v1/query) PromQL 수행
@@ -329,7 +333,8 @@ class PrometheusClient:
         metrics = {
             "oom_killed": False,
             "restart_count": 0,
-            "avg_cpu_usage_pct": None
+            "avg_cpu_usage_pct": None,
+            "throttled": False
         }
 
         try:
@@ -353,6 +358,12 @@ class PrometheusClient:
             cpu_res = self._query_prometheus(cpu_query)
             if cpu_res is not None:
                 metrics["avg_cpu_usage_pct"] = round(float(cpu_res), 2)
+
+            # 4. CPU Throttling 발생 여부 쿼리 (cAdvisor)
+            throttle_query = f'sum(increase(container_cpu_cfs_throttled_periods_total{{namespace="{namespace}", pod=~"{pod_regex}", container!=""}}[24h]))'
+            throttle_res = self._query_prometheus(throttle_query)
+            if throttle_res and throttle_res > 0:
+                metrics["throttled"] = True
 
             return metrics
 
@@ -485,6 +496,26 @@ class KrrDbClient:
             port = os.getenv("DB_PORT", "5432")
             dbname = os.getenv("DB_NAME", "krr_logs_db")
             self.db_uri = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+        # Grafana 시각화용 컬럼(cost_savings_pct 등)을 기존 krr_logs 테이블에 매번 새로
+        # ALTER 실행하지 않도록, 프로세스 생명주기 동안 한 번만 보강하면 되는지 추적하는 플래그.
+        self._schema_ensured = False
+
+    def _ensure_schema(self, cur) -> None:
+        """krr_logs 테이블에 Grafana 시각화용 컬럼이 없으면 추가합니다 (idempotent).
+        별도 마이그레이션 도구가 없는 프로젝트라, 이미 만들어져 있는 테이블 위에
+        안전하게 컬럼만 보강하는 방식을 씁니다."""
+        if self._schema_ensured:
+            return
+        cur.execute("""
+            ALTER TABLE krr_logs
+                ADD COLUMN IF NOT EXISTS container_name VARCHAR(255) NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS cost_savings_pct DOUBLE PRECISION,
+                ADD COLUMN IF NOT EXISTS cost_savings_amount DOUBLE PRECISION,
+                ADD COLUMN IF NOT EXISTS cpu_utilization_pct DOUBLE PRECISION,
+                ADD COLUMN IF NOT EXISTS oom_killed BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS throttled BOOLEAN DEFAULT FALSE
+        """)
+        self._schema_ensured = True
 
     def save_log(
         self,
@@ -494,7 +525,12 @@ class KrrDbClient:
         cpu_current: str,
         cpu_recommended: str,
         mem_current: str,
-        mem_recommended: str
+        mem_recommended: str,
+        cost_savings_pct: float = 0.0,
+        cost_savings_amount: float = 0.0,
+        cpu_utilization_pct: Optional[float] = None,
+        oom_killed: bool = False,
+        throttled: bool = False
     ) -> bool:
         if not self.db_uri:
             logger.debug("[KrrDbClient] KRR_DB_URI 또는 DB_HOST가 설정되지 않아 DB 저장을 스킵합니다.")
@@ -504,13 +540,15 @@ class KrrDbClient:
             import psycopg2
             with psycopg2.connect(self.db_uri, connect_timeout=5) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("ALTER TABLE krr_logs ADD COLUMN IF NOT EXISTS container_name VARCHAR(255) NOT NULL DEFAULT ''")
+                    self._ensure_schema(cur)
                     query = """
                         INSERT INTO krr_logs (
                             namespace, deployment_name, container_name,
                             cpu_current, cpu_recommended,
-                            mem_current, mem_recommended
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            mem_current, mem_recommended,
+                            cost_savings_pct, cost_savings_amount,
+                            cpu_utilization_pct, oom_killed, throttled
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
                     cur.execute(query, (
                         namespace,
@@ -519,7 +557,12 @@ class KrrDbClient:
                         str(cpu_current),
                         str(cpu_recommended),
                         str(mem_current),
-                        str(mem_recommended)
+                        str(mem_recommended),
+                        cost_savings_pct,
+                        cost_savings_amount,
+                        cpu_utilization_pct,
+                        oom_killed,
+                        throttled
                     ))
                 conn.commit()
             logger.info(f"[KrrDbClient] Successfully inserted log for '{namespace}/{deployment_name}/{container_name}' into krr_logs table!")

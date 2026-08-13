@@ -202,7 +202,7 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         chronos_forecast = None
 
     # 4. 정책 엔진 평가 수행
-    risk_score, overall_status, recommendations, policy_evals, cost_savings_pct = policy_engine.evaluate_optimization(
+    risk_score, overall_status, recommendations, policy_evals, cost_savings_pct, cost_savings_amount = policy_engine.evaluate_optimization(
         deployment_name=deployment_name,
         namespace=namespace,
         current_res=current_spec,
@@ -250,6 +250,8 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         )
 
     # 7-2. KRR 분석 결과를 CNPG DB (krr_logs 테이블)에 저장
+    # Grafana에서 전/후 비교·절감액·실사용률·안전성(OOM/Throttling)을 바로 그릴 수 있도록
+    # 정책 엔진 계산값과 Prometheus 실측값을 함께 저장합니다.
     krr_db_client.save_log(
         namespace=namespace,
         container_name=container_name,
@@ -257,7 +259,12 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         cpu_current=current_spec.cpu,
         cpu_recommended=recommendations.final.cpu,
         mem_current=current_spec.memory,
-        mem_recommended=recommendations.final.memory
+        mem_recommended=recommendations.final.memory,
+        cost_savings_pct=cost_savings_pct,
+        cost_savings_amount=cost_savings_amount,
+        cpu_utilization_pct=prom_metrics.avg_cpu_usage_pct if prom_metrics else None,
+        oom_killed=prom_metrics.oom_killed if prom_metrics else False,
+        throttled=prom_metrics.throttled if prom_metrics else False
     )
 
     # 8. 응답 빌드
