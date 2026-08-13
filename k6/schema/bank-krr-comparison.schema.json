@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "type": "object"
+    },
+    "equivalence_mismatches": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "http": {
+      "type": "object"
+    },
+    "post_run_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "post_stability": {
+      "type": "object"
+    },
+    "pre_run_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "request_cost_estimate": {
+      "type": "object"
+    },
+    "resource_capacity": {
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "thresholds": {
+      "type": "object"
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "workloads": {
+      "additionalProperties": {
+        "required": [
+          "cpu_request_before",
+          "cpu_request_after",
+          "memory_request_before_bytes",
+          "memory_request_after_bytes",
+          "post_cpu_throttling_avg",
+          "post_cpu_throttling_p95",
+          "post_oom",
+          "post_restarts",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "pre_run_id",
+    "post_run_id",
+    "verdict",
+    "thresholds",
+    "checks",
+    "equivalence_mismatches",
+    "http",
+    "resource_capacity",
+    "post_stability",
+    "workloads",
+    "request_cost_estimate"
+  ],
+  "title": "Bank of Anthos KRR PRE/POST comparison",
+  "type": "object"
+}

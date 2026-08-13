@@ -206,10 +206,10 @@ def append_progress_status(original_text: str, status_line: str) -> str:
         return f"{original_text}\n\n{status_line}"
     return status_line
 
-def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
+def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
     try:
         url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
-        res = requests.get(url, timeout=10)
+        res = requests.get(url, params={"container_name": container_name}, timeout=10)
         if res.status_code == 200:
             return res.json()
         print(f"⚠️ FinOps 추천값 조회 실패 -> 응답 코드: {res.status_code}, 내용: {res.text[:300]}")
@@ -440,8 +440,11 @@ async def telegram_callback_webhook(request: Request):
 
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
             rest = callback_data[len("infra_reject"):].lstrip(":")
-            target_namespace, _, target_deployment = rest.partition(":")
-            label = f"{target_namespace}/{target_deployment}" if target_deployment else "대상 워크로드"
+            parts = rest.split(":", 2)
+            target_namespace = parts[0] if len(parts) > 0 else ""
+            target_deployment = parts[1] if len(parts) > 1 else ""
+            target_container = parts[2] if len(parts) > 2 else ""
+            label = f"{target_namespace}/{target_deployment}/{target_container}" if target_deployment and target_container else "대상 워크로드"
             update_telegram_message(
                 chat_id, message_id,
                 append_progress_status(
@@ -453,26 +456,29 @@ async def telegram_callback_webhook(request: Request):
 
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
             rest = callback_data[len("infra_approve"):].lstrip(":")
-            target_namespace, _, target_deployment = rest.partition(":")
+            parts = rest.split(":", 2)
+            target_namespace = parts[0] if len(parts) > 0 else ""
+            target_deployment = parts[1] if len(parts) > 1 else ""
+            target_container = parts[2] if len(parts) > 2 else ""
 
-            if not target_namespace or not target_deployment:
+            if not target_namespace or not target_deployment or not target_container:
                 update_telegram_message(
                     chat_id, message_id,
                     append_progress_status(
                         original_text,
-                        "⚠️ <b>[적용 실패]</b> 콜백 데이터에 namespace/deployment 정보가 없어 어떤 워크로드에 적용할지 알 수 없습니다."
+                        "⚠️ <b>[적용 실패]</b> 콜백 데이터에 namespace/deployment/container 정보가 없어 어떤 워크로드에 적용할지 알 수 없습니다."
                     ),
                     parse_mode="HTML"
                 )
             else:
-                label = f"{target_namespace}/{target_deployment}"
+                label = f"{target_namespace}/{target_deployment}/{target_container}"
                 update_telegram_message(
                     chat_id, message_id,
                     append_progress_status(original_text, f"⏳ <b>[적용 준비 중]</b> <code>{label}</code>의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다..."),
                     parse_mode="HTML"
                 )
 
-                recommendation = fetch_finops_recommendation(target_namespace, target_deployment)
+                recommendation = fetch_finops_recommendation(target_namespace, target_deployment, target_container)
                 if recommendation is None:
                     update_telegram_message(
                         chat_id, message_id,
@@ -501,6 +507,7 @@ async def telegram_callback_webhook(request: Request):
                         {
                             "namespace": target_namespace,
                             "deployment_name": target_deployment,
+                            "container_name": target_container,
                             "cpu": final_cpu,
                             "memory": final_memory,
                         },

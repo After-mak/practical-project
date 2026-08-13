@@ -73,11 +73,11 @@ _last_recommendations: Dict[str, Tuple[AnalysisResponse, float]] = {}
 
 
 def _store_recommendation(deployment_name: str, namespace: str, response: AnalysisResponse) -> None:
-    _last_recommendations[f"{namespace}/{deployment_name}"] = (response, time.monotonic())
+    _last_recommendations[f"{namespace}/{deployment_name}/{response.container_name}"] = (response, time.monotonic())
 
 
-def _get_recommendation(deployment_name: str, namespace: str) -> Optional[AnalysisResponse]:
-    key = f"{namespace}/{deployment_name}"
+def _get_recommendation(deployment_name: str, namespace: str, container_name: Optional[str] = None) -> Optional[AnalysisResponse]:
+    key = f"{namespace}/{deployment_name}/{container_name or deployment_name}"
     entry = _last_recommendations.get(key)
     if entry is None:
         return None
@@ -132,7 +132,7 @@ def readiness_check():
     return {"status": "ready", "checks": checks}
 
 
-async def _run_analysis(deployment_name: str, namespace: str, send_telegram: bool, krr_data: dict = None) -> AnalysisResponse:
+async def _run_analysis(deployment_name: str, namespace: str, send_telegram: bool, container_name: Optional[str] = None, history_duration: Optional[str] = None, krr_data: dict = None) -> AnalysisResponse:
     """
     단일 워크로드에 대한 KRR/Prometheus/Chronos-2 데이터 수집, 정책 엔진 평가,
     리포트 포맷팅, 텔레그램 발송까지 수행하는 공통 분석 로직입니다.
@@ -142,19 +142,20 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
     """
     # 1. KRR 추천 데이터 수집 (미전달 시 개별 조회)
     if krr_data is None:
-        krr_data = await krr_client.get_recommendation(deployment_name, namespace)
+        krr_data = await krr_client.get_recommendation(deployment_name, namespace, container_name, history_duration)
     if not krr_data:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"'{deployment_name}' (ns: {namespace})의 KRR 추천 데이터를 가져올 수 없습니다."
         )
 
+    container_name = container_name or krr_data.get("container") or deployment_name
     # KRR 응답 내부 키가 누락되어도 KeyError로 죽지 않도록 안전하게 접근
     krr_current = krr_data.get("current") or {}
     krr_recommended = krr_data.get("krr_recommended") or {}
 
     # Prometheus에서 직접 초기 리소스 사용량/스펙을 조회 (Prometheus 쿼리 우선 적용)
-    prom_curr_spec = prom_client.get_current_resource_spec(deployment_name, namespace)
+    prom_curr_spec = prom_client.get_current_resource_spec(deployment_name, namespace, container_name)
     if prom_curr_spec:
         current_cpu_val = prom_curr_spec["cpu"]
         current_mem_val = prom_curr_spec["memory"]
@@ -179,7 +180,7 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
     krr_current_limits = krr_data.get("current_limits") or {}
 
     # 2. Prometheus 최근 이력 메트릭 수집 (OOM, Restart, Avg Load)
-    prom_raw = prom_client.get_workload_metrics(deployment_name, namespace)
+    prom_raw = prom_client.get_workload_metrics(deployment_name, namespace, container_name)
     if prom_raw is not None:
         prom_metrics = PrometheusMetrics(
             oom_killed=prom_raw.get("oom_killed", False),
@@ -244,12 +245,14 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
             telegram_message,
             overall_status,
             deployment_name=deployment_name,
-            namespace=namespace
+            namespace=namespace,
+            container_name=container_name,
         )
 
     # 7-2. KRR 분석 결과를 CNPG DB (krr_logs 테이블)에 저장
     krr_db_client.save_log(
         namespace=namespace,
+        container_name=container_name,
         deployment_name=deployment_name,
         cpu_current=current_spec.cpu,
         cpu_recommended=recommendations.final.cpu,
@@ -261,6 +264,7 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
     result = AnalysisResponse(
         deployment_name=deployment_name,
         namespace=namespace,
+        container_name=container_name,
         cpu_reduction_pct=round(cpu_reduction_pct, 1),
         memory_reduction_pct=round(memory_reduction_pct, 1),
         cost_savings_pct=round(cost_savings_pct, 1),
@@ -280,7 +284,7 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
 
 
 @app.get("/recommendation/{namespace}/{deployment_name}")
-def get_last_recommendation(namespace: str, deployment_name: str):
+def get_last_recommendation(namespace: str, deployment_name: str, container_name: Optional[str] = None):
     """
     가장 최근 /analyze(또는 /analyze/namespace) 실행에서 계산된 최종 권장 리소스를 조회합니다.
 
@@ -289,7 +293,7 @@ def get_last_recommendation(namespace: str, deployment_name: str):
     alarm 서비스가 이 엔드포인트를 호출해 "마지막으로 계산된 최종 권장값"을 가져간 뒤
     GitOps 파이프라인에 그 값을 실어 보냅니다.
     """
-    cached = _get_recommendation(deployment_name, namespace)
+    cached = _get_recommendation(deployment_name, namespace, container_name)
     if cached is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -304,6 +308,7 @@ def get_last_recommendation(namespace: str, deployment_name: str):
     return {
         "namespace": namespace,
         "deployment_name": deployment_name,
+        "container_name": cached.container_name,
         "final_cpu": cached.recommendations.final.cpu,
         "final_memory": cached.recommendations.final.memory,
         "overall_status": cached.overall_status,
@@ -319,7 +324,7 @@ async def analyze_workload(request: AnalysisRequest):
     logger.info(f"Received analysis request: {request.deployment_name} in namespace '{request.namespace}' (send_telegram={request.send_telegram})")
 
     try:
-        return await _run_analysis(request.deployment_name, request.namespace, request.send_telegram)
+        return await _run_analysis(request.deployment_name, request.namespace, request.send_telegram, request.container_name, request.history_duration)
     except HTTPException:
         raise
     except Exception as e:
@@ -340,7 +345,7 @@ async def analyze_namespace(request: NamespaceAnalysisRequest):
     """
     logger.info(f"Received namespace-wide analysis request: namespace='{request.namespace}' (send_telegram={request.send_telegram})")
 
-    namespace_scan = await krr_client.get_namespace_recommendations(request.namespace)
+    namespace_scan = await krr_client.get_namespace_recommendations(request.namespace, request.history_duration)
     if not namespace_scan:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -348,13 +353,17 @@ async def analyze_namespace(request: NamespaceAnalysisRequest):
         )
 
     results = []
-    for deployment_name, krr_data in namespace_scan.items():
+    for identifier, krr_data in namespace_scan.items():
+        deployment_name = krr_data["workload"]
+        container_name = krr_data["container"]
         try:
-            result = await _run_analysis(deployment_name, request.namespace, request.send_telegram, krr_data=krr_data)
+            result = await _run_analysis(
+                deployment_name, request.namespace, request.send_telegram,
+                container_name, request.history_duration, krr_data,
+            )
             results.append(result)
         except Exception as e:
-            # 워크로드 하나의 분석 실패가 전체 네임스페이스 분석을 중단시키지 않도록 함
-            logger.error(f"'{deployment_name}' 분석 중 오류 발생, 건너뜁니다: {str(e)}", exc_info=True)
+            logger.error("%s analysis failed: %s", identifier, e, exc_info=True)
 
     return NamespaceAnalysisResponse(
         namespace=request.namespace,
