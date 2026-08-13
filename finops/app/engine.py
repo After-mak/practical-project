@@ -86,7 +86,7 @@ class PolicyEngine:
         mem_data_insufficient: bool = False,
         cpu_limit_str: Optional[str] = None,
         memory_limit_str: Optional[str] = None
-    ) -> Tuple[str, str, RecommendationData, List[PolicyResult], float]:
+    ) -> Tuple[str, str, RecommendationData, List[PolicyResult], float, float]:
         """
         KRR 추천 및 모니터링 메트릭을 기반으로 운영 정책을 적용하고 
         위험도(Risk Score)와 최종 안전 승인값을 도출합니다.
@@ -351,7 +351,14 @@ class PolicyEngine:
 
         if overall_status == "FAIL" or current_cost <= 0:
             cost_change_pct = 0.0
+            cost_savings_amount = 0.0
         else:
             cost_change_pct = ((current_cost - final_cost) / current_cost) * 100.0
+            # 절대 절감액 (가상 비용 단위, CPU_UNIT_COST/MEM_UNIT_COST 기준). Grafana에서
+            # 절감률(%)뿐 아니라 절감 금액 자체를 바로 그릴 수 있도록 함께 반환합니다.
+            cost_savings_amount = current_cost - final_cost
 
-        return risk_score, overall_status, recommendations, policy_evals, round(cost_change_pct, 1)
+        return (
+            risk_score, overall_status, recommendations, policy_evals,
+            round(cost_change_pct, 1), round(cost_savings_amount, 2)
+        )

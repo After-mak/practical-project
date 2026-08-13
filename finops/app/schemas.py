@@ -37,6 +37,7 @@ class PrometheusMetrics(BaseModel):
     oom_killed: bool = Field(default=False, description="최근 OOM킬 발생 여부")
     restart_count: int = Field(default=0, description="최근 Pod 재시작 횟수")
     avg_cpu_usage_pct: Optional[float] = Field(default=None, description="최근 평균 CPU 사용률 (%)")
+    throttled: bool = Field(default=False, description="최근 24시간 내 CPU Throttling 발생 여부")
 
 # 6. Chronos-2 예측 데이터 스키마
 class ChronosForecast(BaseModel):
