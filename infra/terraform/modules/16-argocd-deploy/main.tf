@@ -447,6 +447,7 @@ spec:
           # Prometheus Sidecar와 Thanos Store를 연결
           stores:
             - "prometheus-operated.prometheus.svc.cluster.local:10901"
+            - "thanos-storegateway.prometheus.svc.cluster.local:10901"
           serviceAccount:
             create: true
             name: thanos-query
@@ -460,6 +461,8 @@ spec:
           serviceAccount:
             create: true
             name: thanos-store
+            # 파드에 IRSA IAM 토큰을 자동으로 마운트하도록 설정
+            automountServiceAccountToken: true
             annotations:
               eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
         objstoreConfig: |-
@@ -469,7 +472,21 @@ spec:
             endpoint: s3.ap-northeast-2.amazonaws.com
             region: ap-northeast-2
         compactor:
-          enabled: false
+          # enabled: false
+          enabled: true
+          retentionResolutionRaw: 30d   # 원본(상세) 데이터 30일 보존 후 삭제
+          retentionResolution5m: 30d    # 5분 축소 데이터 30일 보존
+          retentionResolution1h: 30d   # 1시간 축소 데이터 30일 보존
+          persistence:
+            enabled: true
+            storageClass: "ebs-gp3"
+            size: 10Gi                  # 작업용 로컬 EBS 볼륨 생성
+          # Compactor가 S3 접근 시 사용할 ServiceAccount 및 IRSA 권한 추가
+          serviceAccount:
+            create: true
+            name: thanos-compactor
+            annotations:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
         bucketweb:
           enabled: false
         receive:

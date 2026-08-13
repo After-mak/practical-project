@@ -49,7 +49,8 @@ module "thanos_irsa" {
       namespace_service_accounts = [
         "prometheus:prometheus-stack-kube-prom-prometheus",
         "prometheus:thanos-store",
-        "prometheus:thanos-query"
+        "prometheus:thanos-query",
+        "prometheus:thanos-compactor"
       ]
     }
   }

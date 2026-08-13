@@ -63,7 +63,7 @@ resource "random_id" "thanos_bucket_suffix" {
 }
 
 resource "aws_s3_bucket" "thanos_metrics" {
-  bucket        = "project03-thanos-metrics-${random_id.thanos_bucket_suffix.hex}"
+  bucket        = "project03-thanos-metrics-83154bf5"
   force_destroy = false
 
   # dev EKS를 반복해서 destroy/apply하더라도 KRR·Chronos 과거 메트릭은 보존합니다.
