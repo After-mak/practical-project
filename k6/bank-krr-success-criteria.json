@@ -1,0 +1,14 @@
+{
+  "business_failure_rate_max": 0.01,
+  "cpu_throttling_avg_max": 0.05,
+  "cpu_throttling_p95_max": 0.2,
+  "dropped_iterations_max": 0,
+  "offered_rps_deviation_max": 0.01,
+  "oom_increase_max": 0,
+  "p95_regression_max": 0.1,
+  "p99_regression_max": 0.15,
+  "require_resource_reduction": true,
+  "restart_increase_max": 0,
+  "successful_throughput_ratio_min": 0.95,
+  "system_error_rate_max": 0.01
+}

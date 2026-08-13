@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "application_commit": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "collection_warnings": {
+      "type": "object"
+    },
+    "duration_seconds": {
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "ended_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "equivalence": {
+      "type": "object"
+    },
+    "gitops_commit": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "http": {
+      "required": [
+        "offered_requests",
+        "offered_rps",
+        "successful_requests",
+        "successful_rps",
+        "system_error_rate",
+        "business_failure_rate",
+        "latency_ms",
+        "offered_flows",
+        "offered_flow_rps"
+      ],
+      "type": "object"
+    },
+    "krr_analysis_window": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "krr_history_duration": {
+      "pattern": "^[1-9][0-9]*(m|h|d|w)$",
+      "type": "string"
+    },
+    "krr_recommendations": {
+      "type": "object"
+    },
+    "nodes": {
+      "type": "object"
+    },
+    "phase": {
+      "enum": [
+        "smoke",
+        "pilot",
+        "pre",
+        "post"
+      ]
+    },
+    "run_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "scenario": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "scenario_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "workloads": {
+      "additionalProperties": {
+        "required": [
+          "namespace",
+          "workload",
+          "container",
+          "cpu_usage_cores",
+          "memory_working_set_bytes",
+          "cpu_throttling_ratio",
+          "restart_increase",
+          "oom_killed_pods",
+          "replicas",
+          "cpu_request_cores_per_replica",
+          "memory_request_bytes_per_replica",
+          "cpu_limit_cores_per_replica",
+          "memory_limit_bytes_per_replica",
+          "cpu_usage_request_ratio",
+          "memory_usage_request_ratio"
+        ],
+        "type": "object"
+      },
+      "minProperties": 1,
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "phase",
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "application_commit",
+    "gitops_commit",
+    "scenario",
+    "scenario_sha256",
+    "krr_history_duration",
+    "equivalence",
+    "http",
+    "workloads",
+    "nodes",
+    "krr_recommendations",
+    "collection_warnings",
+    "krr_analysis_window"
+  ],
+  "title": "Bank of Anthos KRR run result",
+  "type": "object"
+}
