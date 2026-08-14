@@ -34,3 +34,9 @@ rules:
     resources:
       - horizontalpodautoscalers
     verbs: ["get", "list", "watch"]
+  # KRR이 Argo Rollouts 기반 Frontend도 읽기 전용으로 탐색할 수 있어야 합니다.
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - rollouts
+      - rollouts/scale
+    verbs: ["get", "list", "watch"]

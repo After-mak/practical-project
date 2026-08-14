@@ -19,16 +19,20 @@ locals {
   bank_jwt_data = var.enable_bank_jwt_rotation ? jsondecode(data.aws_secretsmanager_secret_version.bank_jwt[0].secret_string) : {}
 }
 
-resource "kubectl_manifest" "bank_namespace" {
+removed {
+  from = kubectl_manifest.bank_namespace
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+data "kubernetes_namespace_v1" "bank" {
   for_each = var.enable_bank_jwt_rotation ? toset(["frontend", "backend"]) : toset([])
 
-  yaml_body = yamlencode({
-    apiVersion = "v1"
-    kind       = "Namespace"
-    metadata = {
-      name = each.value
-    }
-  })
+  metadata {
+    name = each.value
+  }
 }
 
 resource "kubernetes_secret_v1" "bank_jwt" {
@@ -36,7 +40,7 @@ resource "kubernetes_secret_v1" "bank_jwt" {
 
   metadata {
     name      = var.bank_jwt_kubernetes_secret_name
-    namespace = each.value
+    namespace = data.kubernetes_namespace_v1.bank[each.key].metadata[0].name
     labels = {
       "app.kubernetes.io/part-of"    = "bank-of-anthos"
       "app.kubernetes.io/managed-by" = "terraform"
@@ -59,6 +63,4 @@ resource "kubernetes_secret_v1" "bank_jwt" {
       error_message = "Bank JWT Secrets Manager JSON에는 jwtRS256.key와 jwtRS256.key.pub가 모두 필요합니다."
     }
   }
-
-  depends_on = [kubectl_manifest.bank_namespace]
 }
