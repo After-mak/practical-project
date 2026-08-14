@@ -55,7 +55,7 @@ module "argocd_deploy" {
   sample_fastapi_redis_host        = data.terraform_remote_state.infra.outputs.redis_primary_endpoint
   sample_fastapi_redis_port        = data.terraform_remote_state.infra.outputs.redis_port
 
-  bank_jwt_secret_name = var.bank_jwt_kubernetes_secret_name
+  bank_jwt_secret_name = var.enable_bank_jwt_rotation ? var.bank_jwt_kubernetes_secret_name : var.bank_jwt_current_kubernetes_secret_name
 
   enable_krr_demo_seed = var.enable_krr_demo_seed
   krr_demo_seed_image  = var.enable_krr_demo_seed ? "${data.aws_ecr_repository.krr_demo_seed[0].repository_url}:latest" : ""
