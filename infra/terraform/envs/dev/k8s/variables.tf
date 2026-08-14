@@ -26,6 +26,18 @@ variable "bank_jwt_secretsmanager_name" {
   default     = "project03/bank-of-anthos/jwt-v2"
 }
 
+variable "enable_bank_jwt_rotation" {
+  description = "신규 Bank JWT를 Secrets Manager에서 읽어 Kubernetes Secret과 Argo CD 참조를 함께 전환할지 여부"
+  type        = bool
+  default     = false
+}
+
+variable "bank_jwt_current_kubernetes_secret_name" {
+  description = "JWT 교체 전 Frontend/Backend가 계속 참조할 기존 Kubernetes Secret 이름"
+  type        = string
+  default     = "jwt-key"
+}
+
 variable "bank_jwt_kubernetes_secret_name" {
   description = "Frontend/Backend가 공통으로 참조할 교체용 Kubernetes Secret 이름"
   type        = string
