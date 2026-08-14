@@ -43,3 +43,8 @@ __pycache__/
 .env
 *.env.local
 k6/results/
+
+# 전체 클러스터 백업 자료
+cluster_30days_metrics.openmetrics
+output_cluster_blocks
+thanos_blocks

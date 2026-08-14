@@ -456,6 +456,15 @@ spec:
         storegateway:
           enabled: true
           replicaCount: 1
+          # StoreGateway 메모리 증설 (2Gi) 
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          # -----------------------------------------------------
           persistence:
             storageClass: "ebs-gp3"
           serviceAccount:
