@@ -4,16 +4,9 @@ variable "grafana_admin_password" {
   sensitive   = true
 }
 
-variable "jwt_private_key" {
-  description = "jwt_private_key"
+variable "bank_jwt_secret_name" {
+  description = "Frontend/Backend가 참조할 사전 생성 JWT Kubernetes Secret 이름"
   type        = string
-  sensitive   = true
-}
-
-variable "jwt_public_key" {
-  description = "jwt_public_key"
-  type        = string
-  sensitive   = true
 }
 
 variable "aws_profile" { type = string }
