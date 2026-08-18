@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# CI/CD Test: Trigger automated ECR build and GitOps tag update
+
 """Web service for frontend
 """
 

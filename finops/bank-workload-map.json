@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "workloads": {
+    "backend/balancereader/balancereader": {
+      "kind": "Deployment",
+      "requests_path": ".resources.balancereader.app.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/balancereader/worker": {
+      "kind": "Deployment",
+      "requests_path": ".resources.balancereader.worker.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/contacts/contacts": {
+      "kind": "Deployment",
+      "requests_path": ".resources.contacts.app.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/contacts/worker": {
+      "kind": "Deployment",
+      "requests_path": ".resources.contacts.worker.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/ledgerwriter/ledgerwriter": {
+      "kind": "Deployment",
+      "requests_path": ".resources.ledgerwriter.app.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/ledgerwriter/worker": {
+      "kind": "Deployment",
+      "requests_path": ".resources.ledgerwriter.worker.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/transactionhistory/transactionhistory": {
+      "kind": "Deployment",
+      "requests_path": ".resources.transactionhistory.app.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/transactionhistory/worker": {
+      "kind": "Deployment",
+      "requests_path": ".resources.transactionhistory.worker.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/userservice/userservice": {
+      "kind": "Deployment",
+      "requests_path": ".resources.userservice.app.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "backend/userservice/worker": {
+      "kind": "Deployment",
+      "requests_path": ".resources.userservice.worker.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    },
+    "frontend/mak-app-rollout/mak-container": {
+      "kind": "Rollout",
+      "krr_support": "supported_by_v1.29.0_source_live_discovery_pending",
+      "requests_path": ".resources.frontend.requests",
+      "values_file": "charts/mak-app/values.yaml"
+    }
+  }
+}

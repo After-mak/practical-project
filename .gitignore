@@ -23,6 +23,10 @@ backend.hcl
 !/docs/
 /docs/*
 !/docs/chronos-predictive-autoscaling-runbook.md
+!/docs/bank-of-anthos-live-traffic-krr-runbook.md
+!/docs/bank-of-anthos-krr-metric-contract.md
+!/docs/bank-of-anthos-krr-report-template.md
+!/docs/bank-of-anthos-krr-gap-report.md
 
 # === Python/FastAPI 로컬 실행 생성물 ===
 # __pycache__와 pyc 파일은 Python 실행 중 자동 생성되므로 Git에 올리지 않습니다.
@@ -39,3 +43,8 @@ __pycache__/
 .env
 *.env.local
 k6/results/
+
+# 전체 클러스터 백업 자료
+cluster_30days_metrics.openmetrics
+output_cluster_blocks
+thanos_blocks

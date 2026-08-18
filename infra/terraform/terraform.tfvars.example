@@ -1,18 +1,6 @@
 # aws 공유 계정 접근
-aws_profile    = "admin-자기이름"
+aws_profile = "admin-자기이름"
 
-# app에 쓰일 jwt_key 
-
-jwt_private_key = <<-EOT
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEAtVnzgcTKn6pHNsika6xDdPp3M8OugJ6R/XHuRnKJ4QYp776B
-... (개인키 내용) ...
------END RSA PRIVATE KEY-----
-EOT
-
-jwt_public_key = <<-EOT
------BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtVnzgcTKn6pHNsika6xD
-... (공개키 내용) ...
------END PUBLIC KEY-----
-EOT
+# JWT 키 본문은 tfvars나 Git에 넣지 않습니다.
+# infra/terraform/envs/dev/k8s의 bank_jwt_secretsmanager_name이 가리키는
+# AWS Secrets Manager 항목을 승인된 절차로 먼저 생성합니다.

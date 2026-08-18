@@ -1,0 +1,24 @@
+{
+  "application_image": "registry.example/bank@sha256:REPLACE_ME",
+  "autoscaling": {
+    "backend_max": 5,
+    "frontend_max": 10
+  },
+  "db_state_id": "REPLACE_WITH_SNAPSHOT_OR_SEED_ID",
+  "loadgen_image": "grafana/k6@sha256:REPLACE_ME",
+  "node_pool": {
+    "limits": "RECORD_BEFORE_RUN",
+    "name": "RECORD_BEFORE_RUN"
+  },
+  "scenario_config": {
+    "cycles": "18",
+    "low_rps": "1",
+    "normal_rps": "10",
+    "payment_percent": "0",
+    "peak_rps": "25",
+    "profile": "long",
+    "recovery_rps": "3",
+    "spike_rps": "40",
+    "time_scale": "1"
+  }
+}

@@ -27,10 +27,14 @@ spec:
                 - -c
                 - |
                   echo "Executing daily FinOps analysis at 3:00 AM..."
-                  # KRR이 targetNamespace에서 발견하는 모든 워크로드를 한 번에 전수 분석합니다.
-                  # 워크로드 수가 많으면 순차 분석에 시간이 걸릴 수 있어 넉넉히 10분 타임아웃을 둡니다.
-                  # -f: 4xx/5xx 응답 시 실패로 처리되어 Job 상태(및 failedJobsHistoryLimit)에 반영됩니다.
-                  curl -sf --max-time 600 -X POST "http://{{ include "finops.fullname" . }}:{{ .Values.service.port }}/analyze/namespace" \
+                  # targetNamespaces 각각에 대해 /analyze/namespace를 순차 호출해 KRR이 발견하는
+                  # 모든 워크로드를 전수 분석합니다. 네임스페이스 하나가 실패해도 나머지 네임스페이스
+                  # 분석은 계속 진행하고, 실패한 네임스페이스만 로그에 ERROR로 남깁니다.
+                  {{- range .Values.cronjob.targetNamespaces }}
+                  echo "Analyzing namespace: {{ . }}"
+                  curl -sf --max-time 600 -X POST "http://{{ include "finops.fullname" $ }}:{{ $.Values.service.port }}/analyze/namespace" \
                     -H "Content-Type: application/json" \
-                    -d '{"namespace": "{{ .Values.cronjob.targetNamespace }}", "send_telegram": true}'
+                    -d '{"namespace": "{{ . }}", "history_duration": "{{ $.Values.cronjob.historyDuration }}", "send_telegram": true}' \
+                    || echo "ERROR: namespace '{{ . }}' 분석 실패"
+                  {{- end }}
 {{- end }}

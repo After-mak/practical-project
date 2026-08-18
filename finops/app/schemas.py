@@ -5,11 +5,14 @@ from typing import List, Optional
 class AnalysisRequest(BaseModel):
     deployment_name: str = Field(default="payment-api", description="최적화 대상 Deployment 이름")
     namespace: str = Field(default="prod", description="쿠버네티스 네임스페이스")
+    container_name: Optional[str] = Field(default=None, description="최적화 대상 컨테이너 이름")
+    history_duration: str = Field(default="336h", description="KRR 분석 이력 범위(예: 24h, 7d)")
     send_telegram: bool = Field(default=False, description="분석 후 텔레그램 승인 요청 메시지 다이렉트 전송 여부")
 
 # 1-1. 네임스페이스 내 전체 워크로드를 한 번에 분석 요청하는 스키마 (CronJob 다중 타겟팅용)
 class NamespaceAnalysisRequest(BaseModel):
     namespace: str = Field(default="prod", description="전수 분석할 쿠버네티스 네임스페이스")
+    history_duration: str = Field(default="336h", description="KRR 분석 이력 범위(예: 24h, 7d)")
     send_telegram: bool = Field(default=False, description="분석 후 텔레그램 승인 요청 메시지 다이렉트 전송 여부")
 
 # 2. CPU/메모리 리소스 규격 정의
@@ -37,6 +40,7 @@ class PrometheusMetrics(BaseModel):
     oom_killed: bool = Field(default=False, description="최근 OOM킬 발생 여부")
     restart_count: int = Field(default=0, description="최근 Pod 재시작 횟수")
     avg_cpu_usage_pct: Optional[float] = Field(default=None, description="최근 평균 CPU 사용률 (%)")
+    throttled: bool = Field(default=False, description="최근 24시간 내 CPU Throttling 발생 여부")
 
 # 6. Chronos-2 예측 데이터 스키마
 class ChronosForecast(BaseModel):
@@ -48,6 +52,7 @@ class ChronosForecast(BaseModel):
 class AnalysisResponse(BaseModel):
     deployment_name: str = Field(..., description="대상 Deployment 이름")
     namespace: str = Field(..., description="대상 Namespace")
+    container_name: str = Field(..., description="대상 Container")
     
     # 리소스 및 비용 절감 지표
     cpu_reduction_pct: float = Field(..., description="최종 CPU 절감률 (%)")
