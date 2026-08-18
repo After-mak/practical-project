@@ -34,7 +34,8 @@ rules:
     resources:
       - horizontalpodautoscalers
     verbs: ["get", "list", "watch"]
-  # KRR이 Argo Rollouts 기반 Frontend도 읽기 전용으로 탐색할 수 있어야 합니다.
+  # frontend(mak-app-rollout)처럼 Deployment 대신 Argo Rollout으로 배포된 워크로드를
+  # KRR이 읽기 전용으로 조회하는 데 필요한 권한 (KRR v1.29.0부터 Rollout 조회를 지원함).
   - apiGroups: ["argoproj.io"]
     resources:
       - rollouts

@@ -511,6 +511,8 @@ class KrrDbClient:
                 ADD COLUMN IF NOT EXISTS container_name VARCHAR(255) NOT NULL DEFAULT '',
                 ADD COLUMN IF NOT EXISTS cost_savings_pct DOUBLE PRECISION,
                 ADD COLUMN IF NOT EXISTS cost_savings_amount DOUBLE PRECISION,
+                ADD COLUMN IF NOT EXISTS current_cost DOUBLE PRECISION,
+                ADD COLUMN IF NOT EXISTS final_cost DOUBLE PRECISION,
                 ADD COLUMN IF NOT EXISTS cpu_utilization_pct DOUBLE PRECISION,
                 ADD COLUMN IF NOT EXISTS oom_killed BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS throttled BOOLEAN DEFAULT FALSE
@@ -528,6 +530,8 @@ class KrrDbClient:
         mem_recommended: str,
         cost_savings_pct: float = 0.0,
         cost_savings_amount: float = 0.0,
+        current_cost: float = 0.0,
+        final_cost: float = 0.0,
         cpu_utilization_pct: Optional[float] = None,
         oom_killed: bool = False,
         throttled: bool = False
@@ -547,8 +551,9 @@ class KrrDbClient:
                             cpu_current, cpu_recommended,
                             mem_current, mem_recommended,
                             cost_savings_pct, cost_savings_amount,
+                            current_cost, final_cost,
                             cpu_utilization_pct, oom_killed, throttled
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
                     cur.execute(query, (
                         namespace,
@@ -560,6 +565,8 @@ class KrrDbClient:
                         str(mem_recommended),
                         cost_savings_pct,
                         cost_savings_amount,
+                        current_cost,
+                        final_cost,
                         cpu_utilization_pct,
                         oom_killed,
                         throttled

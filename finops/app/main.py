@@ -202,7 +202,7 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         chronos_forecast = None
 
     # 4. 정책 엔진 평가 수행
-    risk_score, overall_status, recommendations, policy_evals, cost_savings_pct, cost_savings_amount = policy_engine.evaluate_optimization(
+    risk_score, overall_status, recommendations, policy_evals, cost_savings_pct, cost_savings_amount, current_cost, final_cost = policy_engine.evaluate_optimization(
         deployment_name=deployment_name,
         namespace=namespace,
         current_res=current_spec,
@@ -262,6 +262,8 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         mem_recommended=recommendations.final.memory,
         cost_savings_pct=cost_savings_pct,
         cost_savings_amount=cost_savings_amount,
+        current_cost=current_cost,
+        final_cost=final_cost,
         cpu_utilization_pct=prom_metrics.avg_cpu_usage_pct if prom_metrics else None,
         oom_killed=prom_metrics.oom_killed if prom_metrics else False,
         throttled=prom_metrics.throttled if prom_metrics else False

@@ -77,6 +77,18 @@ prometheus:
             mountPath: /prometheus
 %{ endif ~}
 grafana:
+  # Reflector가 krr-data-db-app Secret(finops)을 이 네임스페이스(prometheus)로
+  # 복제해준 것을 env var로 주입합니다. CNPG가 비밀번호를 재발급해도 Reflector가
+  # 복제본을 계속 갱신하므로, 여기서는 항상 최신 값을 읽게 됩니다.
+  envValueFrom:
+    KRR_DB_USER:
+      secretKeyRef:
+        name: krr-data-db-app
+        key: username
+    KRR_DB_PASSWORD:
+      secretKeyRef:
+        name: krr-data-db-app
+        key: password
   additionalDataSources:
     - name: Thanos
       type: prometheus
@@ -84,6 +96,18 @@ grafana:
       access: proxy
       isDefault: false
       version: 1
+    - name: KRR-Logs
+      uid: krr-logs-postgres
+      type: postgres
+      url: krr-data-db-rw.finops.svc.cluster.local:5432
+      database: krr_logs_db
+      user: $__env{KRR_DB_USER}
+      access: proxy
+      isDefault: false
+      jsonData:
+        sslmode: disable
+      secureJsonData:
+        password: $__env{KRR_DB_PASSWORD}
   sidecar:
     dashboards:
       enabled: true
