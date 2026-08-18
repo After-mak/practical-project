@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -135,3 +136,21 @@ def test_official_krr_json_shape_preserves_current_quantities():
     assert result["current_limits"] == {"cpu": "500m", "memory": "3Gi"}
     assert result["krr_recommended"]["cpu"] == "25m"
     assert result["krr_recommended"]["memory"] is None
+
+
+def test_finops_chart_grants_rollout_read_only_access():
+    chart = Path(__file__).resolve().parents[1] / "charts" / "finops"
+    output = subprocess.run(
+        ["helm", "template", "finops", str(chart), "--namespace", "finops"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    expected_rule = """  - apiGroups: ["argoproj.io"]
+    resources:
+      - rollouts
+      - rollouts/scale
+    verbs: ["get", "list", "watch"]"""
+    assert expected_rule in output
+    assert 'verbs: ["create"' not in output
+    assert 'verbs: ["delete"' not in output

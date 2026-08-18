@@ -30,6 +30,12 @@ alertmanager:
           - url: 'http://tg-gateway-service.default.svc.cluster.local:8000/webhook/alertmanager'
             send_resolved: true
 prometheus:
+  # Prometheus가 사용할 ServiceAccount에 Thanos S3 IRSA 권한 추가
+  serviceAccount:
+    create: true
+    name: prometheus-stack-kube-prom-prometheus
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::372666940978:role/project03-thanos-s3-role"
   prometheusSpec:
     # Helm release name에 의존하지 않고 명시적인 라벨로 ServiceMonitor를 선택합니다.
     serviceMonitorSelectorNilUsesHelmValues: false
