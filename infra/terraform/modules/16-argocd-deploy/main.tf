@@ -1,6 +1,7 @@
 terraform {
   required_providers {
     kubectl = { source = "alekc/kubectl" }
+    null    = { source = "hashicorp/null" }
   }
 }
 
@@ -368,6 +369,75 @@ spec:
     syncOptions:
     - CreateNamespace=true
 YAML
+}
+
+# ----------------------------------------------------------------
+# Reflector: krr-data-db-app Secret(finops 네임스페이스)을 Grafana가 있는
+# prometheus 네임스페이스로 복제하기 위한 컨트롤러. CNPG가 비밀번호를 재발급해도
+# 자동으로 따라가도록, Terraform이 값을 한 번 읽어 복사하는 대신 클러스터 안에서
+# 지속적으로 동기화되는 방식을 씁니다.
+# ----------------------------------------------------------------
+resource "kubectl_manifest" "reflector" {
+  yaml_body = <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reflector
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://emberstack.github.io/helm-charts
+    chart: reflector
+    targetRevision: "10.0.65"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+YAML
+}
+
+# krr-data-db-app Secret에 Reflector 어노테이션을 붙여 prometheus 네임스페이스로
+# 자동 복제되도록 설정합니다. CNPG Operator가 이 Secret을 비동기로 생성하므로
+# (ArgoCD Application이 Synced 상태가 됐다고 Secret이 바로 존재한다는 보장이 없음),
+# kubectl로 정식 리소스를 만드는 대신 Secret이 나타날 때까지 재시도하며 기다렸다가
+# 어노테이션을 붙입니다 (최대 5분, 10초 간격).
+resource "null_resource" "krr_data_db_app_reflection" {
+  triggers = {
+    # 매 apply마다 재실행 - annotate --overwrite라 멱등하고, 누군가 어노테이션을
+    # 지워도(또는 Secret이 재생성돼도) 다음 apply에서 다시 붙습니다.
+    always_run = timestamp()
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -euo pipefail
+      aws eks update-kubeconfig --name project03-eks --region ap-northeast-2 --profile ${var.aws_profile}
+
+      for i in $(seq 1 30); do
+        if kubectl -n finops get secret krr-data-db-app >/dev/null 2>&1; then
+          kubectl -n finops annotate secret krr-data-db-app --overwrite \
+            reflector.v1.k8s.emberstack.com/reflection-allowed=true \
+            reflector.v1.k8s.emberstack.com/reflection-auto-enabled=true \
+            reflector.v1.k8s.emberstack.com/reflection-auto-namespaces=prometheus
+          echo "[reflection] krr-data-db-app Secret에 어노테이션 완료"
+          exit 0
+        fi
+        echo "[reflection] krr-data-db-app Secret이 아직 없음, 10초 후 재시도 ($i/30)"
+        sleep 10
+      done
+
+      echo "[reflection] 5분 동안 krr-data-db-app Secret을 찾지 못했습니다. CNPG Cluster 상태를 확인하세요." >&2
+      exit 1
+    EOT
+  }
+
+  depends_on = [kubectl_manifest.krr_data_db, kubectl_manifest.reflector]
 }
 
 resource "kubectl_manifest" "karpenter_resources" {
