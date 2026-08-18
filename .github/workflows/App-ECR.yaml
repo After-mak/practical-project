@@ -92,8 +92,8 @@ jobs:
           # 최신 상태 가져오기
           git pull origin main --no-rebase || true
 
-          # 이미지 태그 교체 (images 섹션 하위의 " " 들여쓰기 및 따옴표 항목만 정확히 치환)
-          sed -i "s#  ${{ matrix.service.name }}: \".*\"#  ${{ matrix.service.name }}: \"372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/${{ matrix.service.repo }}:${IMAGE_TAG}\"#" charts/mak-app/values.yaml
+          # 이미지 태그 교체 (yq를 사용하여 정확한 YAML 경로 업데이트)
+          yq -i ".images.${{ matrix.service.name }} = \"372666940978.dkr.ecr.ap-northeast-2.amazonaws.com/${{ matrix.service.repo }}:${IMAGE_TAG}\"" charts/mak-app/values.yaml
 
           git add .
           

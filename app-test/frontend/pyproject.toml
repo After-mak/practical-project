@@ -30,6 +30,7 @@ dependencies = [
     "opentelemetry-instrumentation-flask>=0.60b1",
     "opentelemetry-instrumentation-jinja2>=0.60b1",
     "opentelemetry-instrumentation-requests>=0.60b1",
+    "redis>=5.0.0",
 ]
 
 [dependency-groups]
