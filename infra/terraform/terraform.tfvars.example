@@ -4,3 +4,9 @@ aws_profile = "admin-자기이름"
 # JWT 키 본문은 tfvars나 Git에 넣지 않습니다.
 # infra/terraform/envs/dev/k8s의 bank_jwt_secretsmanager_name이 가리키는
 # AWS Secrets Manager 항목을 승인된 절차로 먼저 생성합니다.
+#
+# 신규 클러스터에서는 아래 옵션을 활성화해야 frontend/backend Namespace에
+# Kubernetes Secret이 생성되고 Argo CD도 같은 Secret 이름을 참조합니다.
+enable_bank_jwt_rotation        = true
+bank_jwt_secretsmanager_name    = "project03/bank-of-anthos/jwt-v2"
+bank_jwt_kubernetes_secret_name = "bank-jwt-key-v2"

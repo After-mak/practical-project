@@ -27,11 +27,17 @@ removed {
   }
 }
 
-data "kubernetes_namespace_v1" "bank" {
-  for_each = var.enable_bank_jwt_rotation ? toset(["frontend", "backend"]) : toset([])
+# Namespace는 JWT 활성화 여부와 무관하게 유지합니다. 그래야 신규 클러스터에서
+# Secret보다 먼저 생성되고, JWT 토글을 꺼도 애플리케이션 Namespace가 삭제되지 않습니다.
+resource "kubernetes_namespace_v1" "bank" {
+  for_each = toset(["frontend", "backend"])
 
   metadata {
     name = each.value
+    labels = {
+      "app.kubernetes.io/part-of"    = "bank-of-anthos"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
   }
 }
 
@@ -40,7 +46,7 @@ resource "kubernetes_secret_v1" "bank_jwt" {
 
   metadata {
     name      = var.bank_jwt_kubernetes_secret_name
-    namespace = data.kubernetes_namespace_v1.bank[each.key].metadata[0].name
+    namespace = kubernetes_namespace_v1.bank[each.key].metadata[0].name
     labels = {
       "app.kubernetes.io/part-of"    = "bank-of-anthos"
       "app.kubernetes.io/managed-by" = "terraform"

@@ -86,7 +86,7 @@ class PolicyEngine:
         mem_data_insufficient: bool = False,
         cpu_limit_str: Optional[str] = None,
         memory_limit_str: Optional[str] = None
-    ) -> Tuple[str, str, RecommendationData, List[PolicyResult], float, float]:
+    ) -> Tuple[str, str, RecommendationData, List[PolicyResult], float, float, float, float]:
         """
         KRR 추천 및 모니터링 메트릭을 기반으로 운영 정책을 적용하고 
         위험도(Risk Score)와 최종 안전 승인값을 도출합니다.
@@ -360,5 +360,6 @@ class PolicyEngine:
 
         return (
             risk_score, overall_status, recommendations, policy_evals,
-            round(cost_change_pct, 1), round(cost_savings_amount, 2)
+            round(cost_change_pct, 1), round(cost_savings_amount, 2),
+            round(current_cost, 2), round(final_cost, 2)
         )
