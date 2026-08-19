@@ -29,7 +29,7 @@ variable "bank_jwt_secretsmanager_name" {
 variable "enable_bank_jwt_rotation" {
   description = "신규 Bank JWT를 Secrets Manager에서 읽어 Kubernetes Secret과 Argo CD 참조를 함께 전환할지 여부"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "bank_jwt_current_kubernetes_secret_name" {

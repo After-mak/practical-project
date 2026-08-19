@@ -28,8 +28,8 @@ def test_rotation_only_gates_secret_inputs_and_secret_resource():
     )
 
 
-def test_rotation_defaults_to_disabled():
+def test_rotation_defaults_to_enabled():
     variables = (K8S_ROOT / "variables.tf").read_text(encoding="utf-8")
     block = variables.split('variable "enable_bank_jwt_rotation"', 1)[1].split("}", 1)[0]
 
-    assert "default     = false" in block
+    assert "default     = true" in block
