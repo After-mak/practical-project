@@ -128,7 +128,7 @@ def create_app():
                 password=redis_password if redis_password else None,
                 ssl=redis_tls_enabled,
                 socket_timeout=2.0,
-                connect_timeout=2.0,
+                socket_connect_timeout=2.0,
                 decode_responses=True
             )
             return _redis_client
