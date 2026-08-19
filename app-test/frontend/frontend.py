@@ -141,6 +141,7 @@ def create_app():
     # TTL=30초 → pod 죽으면 30초 후 자동 삭제 → pod 수 자동 반영
     # =========================================================================
     ACTIVE_USERS_SET_KEY = 'active-users-set'
+    WAITING_HEARTBEAT_KEY = 'waiting-heartbeat-set'
     def _pod_heartbeat():
         r = get_redis_client()
         while True:
@@ -156,6 +157,13 @@ def create_app():
                         expired = [m for m in members if not r.exists(f"active:{m}")]
                         if expired:
                             r.srem(ACTIVE_USERS_SET_KEY, *expired)
+
+                    # 대기열 큐에서 30초 이상 하트비트가 없는 유령 토큰(봇 등) 청소
+                    stale_time = time.time() - 30
+                    stale_tokens = r.zrangebyscore(WAITING_HEARTBEAT_KEY, 0, stale_time)
+                    if stale_tokens:
+                        r.zrem(waiting_queue_key, *stale_tokens)
+                        r.zrem(WAITING_HEARTBEAT_KEY, *stale_tokens)
             except Exception as exc:
                 app.logger.warning('Pod heartbeat error: %s', exc)
                 r = None  # 에러 시 다음 루프에서 재연결
@@ -202,10 +210,13 @@ def create_app():
                 # 내 순서가 활성 이용자 여유 빈자리에 들어갈 만큼 앞 순서라면 입장 승인
                 if pos < (current_max - active_count):
                     r.zrem(waiting_queue_key, user_token) # 대기 줄에서 제거
+                    r.zrem(WAITING_HEARTBEAT_KEY, user_token) # 대기 하트비트에서도 제거
                     r.setex(active_key, user_session_ttl, "1")  # 개인 TTL로 입장 등록
                     r.sadd(ACTIVE_USERS_SET_KEY, user_token)   # Set에 입장 멤버 추가
                     return True, 0
                 # 아직 순서가 안 되었으면 (False, 1-indexed 대기 순번) 반환
+                # 대기 중이므로 하트비트 갱신
+                r.zadd(WAITING_HEARTBEAT_KEY, {user_token: time.time()})
                 return False, pos + 1
             else:
                 # 처음 접속한 신규 사용자: 활성 빈자리가 있고 대기 줄이 전혀 없으면 즉시 입장
@@ -216,6 +227,7 @@ def create_app():
                 else:
                     # 빈자리가 없으면 대기 줄 맨 뒤에 등록 (시간을 점수로 사용)
                     r.zadd(waiting_queue_key, {user_token: time.time()})
+                    r.zadd(WAITING_HEARTBEAT_KEY, {user_token: time.time()})
                     new_pos = r.zcard(waiting_queue_key)
                     return False, new_pos
         except Exception as exc:
