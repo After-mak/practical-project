@@ -107,7 +107,7 @@ destroy:
 	@sleep 30
 	@echo "⚠️  주의: AWS 인프라 자원 삭제중..."
 	@echo "▶ [1/2단계] Kubernetes 내부 애플리케이션(ArgoCD 등) 삭제 중..."
-	cd $(TF_DEV_K8S_DIR) && terraform destroy "-target=kubectl_manifest.gateway" "-target=kubectl_manifest.gatewayclass" "-target=kubectl_manifest.lb_config" -auto-approve
+	cd $(TF_DEV_K8S_DIR) && terraform destroy "-target=kubectl_manifest.gateway" "-target=kubectl_manifest.gatewayclass" "-target=kubectl_manifest.lb_config" "-target=data.aws_secretsmanager_secret.bank_jwt" "-target=data.aws_secretsmanager_secret_version.bank_jwt" -auto-approve
 	@sleep 180
 	cd $(TF_DEV_K8S_DIR) && terraform destroy --auto-approve
 	@echo "▶ [2/2단계] AWS 기본 인프라(EKS, VPC 등) 삭제 중..."
