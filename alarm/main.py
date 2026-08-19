@@ -43,14 +43,13 @@ else:
 
 GITHUB_REPO_OWNER = os.getenv("GITHUB_REPO_OWNER", "After-mak")
 GITHUB_REPO_NAME = os.getenv("GITHUB_REPO_NAME", "mak-argocd-deploy")
-# ✅ 기본 브랜치는 main
 TARGET_BRANCH = os.getenv("TARGET_BRANCH", "main")
 ROLLBACK_WORKFLOW_REPO_NAME = os.getenv("ROLLBACK_WORKFLOW_REPO_NAME", "practical-project")
 ROLLBACK_WORKFLOW_BRANCH = os.getenv("ROLLBACK_WORKFLOW_BRANCH", "dev")
 GITOPS_TARGET_BRANCH = os.getenv("GITOPS_TARGET_BRANCH", "main")
 
-# FinOps(KRR) 정책 엔진 서비스 주소
-FINOPS_URL = os.getenv("FINOPS_URL", "http://finops-analyzer.finops.svc.cluster.local:8000")
+# 상우 님 FinOps(KRR) 정책 분석 엔진 서비스 주소 (ClusterIP)
+FINOPS_URL = os.getenv("FINOPS_URL", "http://finops-analyzer-service.default.svc.cluster.local:8000")
 
 GRAFANA_URL = "https://grafana.tuby.shop/login"
 
@@ -156,7 +155,7 @@ def send_telegram_message(text: str, reply_markup: dict = None):
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
-        "parse_mode": "Markdown"
+        "parse_mode": "HTML"
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
@@ -168,7 +167,7 @@ def send_telegram_message(text: str, reply_markup: dict = None):
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
 
-def update_telegram_message(chat_id: int, message_id: int, new_text: str, parse_mode: str = "Markdown"):
+def update_telegram_message(chat_id: int, message_id: int, new_text: str, parse_mode: str = "HTML"):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
     payload = {
         "chat_id": chat_id,
@@ -188,7 +187,6 @@ def update_telegram_message(chat_id: int, message_id: int, new_text: str, parse_
     except Exception as e:
         print(f"❌ Telegram 메시지 수정 에러: {e}")
 
-
 def answer_telegram_callback(callback_query_id: str, text: str = "요청을 접수했습니다."):
     if not callback_query_id:
         return
@@ -206,7 +204,12 @@ def append_progress_status(original_text: str, status_line: str) -> str:
         return f"{original_text}\n\n{status_line}"
     return status_line
 
+<<<<<<< HEAD
 def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
+=======
+# 상우 님 FinOps 분석 엔진에서 동적 권장 리소스(final_cpu, final_memory) 조회
+def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
+>>>>>>> 980d363 (feat: finalize alarm webhook logic and integrate finops endpoints)
     try:
         url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
         res = requests.get(url, params={"container_name": container_name}, timeout=10)
@@ -234,7 +237,7 @@ def trigger_github_workflow(
     }
     payload = {"ref": target_ref}
     if inputs:
-        # ✅ 수정 2: 모든 inputs 값을 강제로 문자열(str)로 변환 (422 타입 에러 방지)
+        # inputs 값을 강제로 문자열(str)로 변환 (GitHub API 422 에러 방지)
         payload["inputs"] = {str(k): str(v) for k, v in inputs.items()}
         
     try:
@@ -242,32 +245,27 @@ def trigger_github_workflow(
         print(f"📡 GitHub API [{workflow_file}] 호출 완료 -> 응답 코드: {res.status_code}")
         
         if res.status_code not in [200, 201, 202, 204]:
-            # ✅ 수정 3: 실패 상세 사유 출력 및 텔레그램 알림 포함
             error_detail = res.text
             print(f"❌ GitHub API 에러 상세: {error_detail}")
-            
             send_telegram_message(
-                f"🚨 *[GitHub Actions 호출 실패]*\n"
-                f"• Repository: `{GITHUB_REPO_OWNER}/{target_repo}`\n"
-                f"• Workflow: `{workflow_file}`\n"
-                f"• HTTP 상태코드: `{res.status_code}`\n"
-                f"• 상세 원인: `{error_detail}`\n"
-                f"• 토큰/권한 및 `.env` 설정을 확인하세요."
+                f"🚨 <b>[GitHub Actions 호출 실패]</b>\n"
+                f"• Repository: <code>{GITHUB_REPO_OWNER}/{target_repo}</code>\n"
+                f"• Workflow: <code>{workflow_file}</code>\n"
+                f"• HTTP 상태코드: <code>{res.status_code}</code>\n"
+                f"• 상세 원인: <code>{error_detail}</code>"
             )
             return False
         return True
     except Exception as e:
         print(f"❌ GitHub API 호출 에러: {e}")
-        send_telegram_message(f"🚨 *[GitHub API 통신 에러]*: `{e}`")
+        send_telegram_message(f"🚨 <b>[GitHub API 통신 에러]</b>: <code>{e}</code>")
         return False
 
 # ==========================================
-# 📩 Webhook Endpoints (총 5개)
-# ==========================================
-# ==========================================
-# 🚀 KEDA 스케일링 / 부하 감지 텔레그램 알림 엔드포인트
+# 📩 Webhook Endpoints
 # ==========================================
 
+# 1. Alertmanager 수신
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request):
     payload = await request.json()
@@ -285,67 +283,52 @@ async def alertmanager_webhook(request: Request):
         severity = labels.get("severity", "unknown")
         summary = annotations.get("summary") or annotations.get("description") or "설명 없음"
         icon = "🚨" if status == "firing" else "✅"
-        lines.append(f"{icon} *{alertname}* ({severity}) - {status}\n{summary}")
+        lines.append(f"{icon} <b>{alertname}</b> ({severity}) - {status}\n{summary}")
         if status == "firing":
             any_firing = True
 
-    text = "*[Alertmanager 알림]*\n\n" + "\n\n".join(lines)
+    text = "<b>[Alertmanager 장애 알림]</b>\n\n" + "\n\n".join(lines)
     reply_markup = None
     if any_firing:
-        text += "\n\n최근 리소스 변경/배포로 인한 영향일 수 있습니다. 이전 버전으로 롤백하시겠습니까?"
+        text += "\n\n최근 배포로 인한 영향일 수 있습니다. 이전 버전으로 롤백하시겠습니까?"
         reply_markup = {
             "inline_keyboard": [[
                 {"text": "⏪ 직전 버전 롤백 (HEAD~1)", "callback_data": "rollback_head"},
-                {"text": "🔍 상태 대시보드 확인", "url": GRAFANA_URL}
+                {"text": "🔍 Grafana 대시보드", "url": GRAFANA_URL}
             ]]
         }
     send_telegram_message(text, reply_markup)
     return {"status": "ok", "alerts_processed": len(alerts)}
 
-@app.post("/webhook/finops")
-async def finops_webhook(req: Optional[CustomRollbackRequest] = None):
-    if req is None:
-        req = CustomRollbackRequest()
-        
-    target_tag = req.target_tag if req.target_tag else "v1.0.0"
-    text = (
-        "⚠️ *[FinOps 엔진 분석]*\n"
-        "Memory 사용량이 p99 한계치에 다다랐습니다. (OOMKill 위험)\n"
-        f"안정성을 위해 지정 버전(`{target_tag}`)으로 롤백을 추천합니다."
-    )
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": f"⏪ 지정 버전({target_tag}) 롤백 실행", "callback_data": f"rollback_custom_{target_tag}"}
-        ]]
-    }
-    send_telegram_message(text, reply_markup)
-    return {"status": "ok"}
+# 2. 상우 님 FinOps 분석 리포트 수신 연동 (★ 핵심 통합 포인트)
+@app.post("/webhook/deploy-request")
+async def handle_finops_report(payload: dict):
+    deployment_name = payload.get("deployment_name", payload.get("deployment", "sample-worker"))
+    namespace = payload.get("namespace", "sample-fastapi")
+    telegram_message = payload.get("telegram_message", "")
+    overall_status = payload.get("overall_status", "PASS")
+    
+    reply_markup = None
+    # 상우 님 엔진의 8종 안전 정책을 통과(PASS)한 경우 인라인 승인/거부 버튼 첨부
+    if overall_status == "PASS":
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": "✅ 승인 (Apply)", "callback_data": f"infra_approve:{namespace}:{deployment_name}"},
+                {"text": "❌ 거부 (Reject)", "callback_data": f"infra_reject:{namespace}:{deployment_name}"}
+            ]]
+        }
+    
+    # 상우 님이 생성한 HTML/마크다운 텍스트 보고서(표)를 그대로 전달
+    msg_text = telegram_message if telegram_message else f"💡 <b>[FinOps 추천]</b> {namespace}/{deployment_name}"
+    send_telegram_message(msg_text, reply_markup=reply_markup)
+    return {"status": "ok", "message": "FinOps report sent to Telegram"}
 
-@app.post("/webhook/deploy-complete")
-async def deploy_complete_notification(request: Request):
-    try:
-        data = await request.json()
-        version = data.get("version", "v1.2.0")
-        app_name = data.get("app_name", "mak-app")
-    except Exception:
-        version = "v1.2.0"
-        app_name = "mak-app"
-
-    text = (
-        f"🚀 **[배포 완료 알림]**\n"
-        f"• **Service**: `{app_name}`\n"
-        f"• **Target Tag**: `{version}`\n\n"
-        f"✨ 최적화 배포 파이프라인이 성공적으로 가동되었습니다!"
-    )
-    send_telegram_message(text)
-    return {"status": "ok", "message": "Deployment notification sent to telegram"}
-
-
+# 3. KEDA 오토스케일링 수신
 @app.post("/webhook/keda-scale")
 async def keda_scale_webhook(request: Request):
     try:
         data = await request.json()
-        scaled_object = data.get("scaledObject", "finops-tg-scaler")
+        scaled_object = data.get("scaledObject", data.get("scaledobject", "finops-tg-scaler"))
         namespace = data.get("namespace", "default")
         replicas = data.get("replicas", "unknown")
     except Exception:
@@ -354,39 +337,37 @@ async def keda_scale_webhook(request: Request):
         replicas = "여러 개"
 
     text = (
-        "📈 *[KEDA 오토스케일링 감지 알림]*\n"
-        f"• **ScaledObject**: `{scaled_object}`\n"
-        f"• **Namespace**: `{namespace}`\n"
-        f"• **현재 확장된 파드 수**: `{replicas}`개\n\n"
-        "⚡ 큐(Queue) 부하가 감지되어 KEDA가 자동으로 파드를 확장(Scale-Up)했습니다!"
+        "📈 <b>[KEDA 오토스케일링 감지 알림]</b>\n\n"
+        f"• <b>ScaledObject</b>: <code>{scaled_object}</code>\n"
+        f"• <b>Namespace</b>: <code>{namespace}</code>\n"
+        f"• <b>현재 확장된 파드 수</b>: <code>{replicas}</code>개\n\n"
+        "⚡ 트래픽/대기열 부하가 감지되어 KEDA가 파드를 자동 확장했습니다!"
     )
     send_telegram_message(text)
-    return {"status": "ok", "message": "KEDA scaling alert sent to telegram"}
+    return {"status": "ok"}
+
+# 4. Argo Rollouts 수신
 @app.post("/webhook/rollout")
 async def rollout_failed_webhook(request: Request):
     try:
         data = await request.json()
         rollout_name = data.get("rollout", "mak-app")
-        reason = data.get("reason", "AnalysisRun Metrics 검증 실패 (Success Rate / Latency 임계치 초과)")
+        reason = data.get("reason", "AnalysisRun Metrics 임계치 초과")
     except Exception:
         rollout_name = "mak-app"
-        reason = "AnalysisRun Metrics 검증 실패 (Success Rate / Latency 임계치 초과)"
+        reason = "AnalysisRun Metrics 임계치 초과"
 
     text = (
-        "❌ *[Argo Rollouts 검증 실패 알림]*\n"
-        f"• **Target Rollout**: `{rollout_name}`\n"
-        f"• **사유**: {reason}\n\n"
-        "⚠️ 카나리 검증 단계에서 이상이 감지되어 **자동 롤백**되었습니다.\n"
-        "이전 커밋 버전 상태 및 Pod 로그를 점검하세요."
+        "❌ <b>[Argo Rollouts 검증 실패 알림]</b>\n\n"
+        f"• <b>Target Rollout</b>: <code>{rollout_name}</code>\n"
+        f"• <b>사유</b>: {reason}\n\n"
+        "⚠️ 카나리 검증 실패로 <b>자동 롤백</b>되었습니다."
     )
-    reply_markup = {
-        "inline_keyboard": [[
-            {"text": "🔍 Grafana 대시보드", "url": GRAFANA_URL}
-        ]]
-    }
+    reply_markup = {"inline_keyboard": [[{"text": "🔍 Grafana 대시보드", "url": GRAFANA_URL}]]}
     send_telegram_message(text, reply_markup)
     return {"status": "ok"}
 
+# 5. 텔레그램 인라인 버튼 콜백 수신 핸들러 (상우 님 엔진 동적 재조회 연동)
 @app.post("/webhook/telegram")
 async def telegram_callback_webhook(request: Request):
     data = await request.json()
@@ -399,8 +380,9 @@ async def telegram_callback_webhook(request: Request):
         message_id = callback["message"]["message_id"]
         original_text = callback["message"].get("text", "")
         
+        # 1) 직전 버전 롤백
         if callback_data == "rollback_head":
-            update_telegram_message(chat_id, message_id, "⏳ *[롤백 진행 중]* 직전 커밋 버전으로 롤백 파이프라인을 실행합니다...")
+            update_telegram_message(chat_id, message_id, "⏳ <b>[롤백 진행 중]</b> 직전 커밋 버전 롤백 파이프라인을 실행합니다...")
             started = trigger_github_workflow(
                 "rollback.yaml",
                 {"target_branch": GITOPS_TARGET_BRANCH},
@@ -408,13 +390,14 @@ async def telegram_callback_webhook(request: Request):
                 ref=ROLLBACK_WORKFLOW_BRANCH,
             )
             if started:
-                update_telegram_message(chat_id, message_id, "✅ *[롤백 요청 완료]* 직전 커밋 버전 롤백 파이프라인이 시작되었습니다!")
+                update_telegram_message(chat_id, message_id, "✅ <b>[롤백 요청 완료]</b> 직전 커밋 버전 롤백 파이프라인이 시작되었습니다!")
             else:
-                update_telegram_message(chat_id, message_id, "❌ *[롤백 요청 실패]* GitHub Actions 파이프라인을 시작하지 못했습니다.")
+                update_telegram_message(chat_id, message_id, "❌ <b>[롤백 요청 실패]</b> GitHub Actions 파이프라인을 시작하지 못했습니다.")
 
+        # 2) Custom 태그 지정 롤백
         elif callback_data.startswith("rollback_custom_"):
             target_tag = callback_data.replace("rollback_custom_", "")
-            update_telegram_message(chat_id, message_id, f"⏳ *[지정 롤백 진행 중]* `{target_tag}` 버전으로 롤백 중입니다...")
+            update_telegram_message(chat_id, message_id, f"⏳ <b>[지정 롤백 진행 중]</b> <code>{target_tag}</code> 버전 롤백 중...")
             started = trigger_github_workflow(
                 "rollback-custom.yaml",
                 {"target_tag": target_tag, "target_branch": GITOPS_TARGET_BRANCH},
@@ -422,22 +405,62 @@ async def telegram_callback_webhook(request: Request):
                 ref=ROLLBACK_WORKFLOW_BRANCH,
             )
             if started:
-                update_telegram_message(chat_id, message_id, f"✅ *[지정 롤백 요청 완료]* `{target_tag}` 버전 롤백 파이프라인이 시작되었습니다!")
+                update_telegram_message(chat_id, message_id, f"✅ <b>[지정 롤백 요청 완료]</b> <code>{target_tag}</code> 버전 롤백 파이프라인이 시작되었습니다!")
             else:
-                update_telegram_message(chat_id, message_id, f"❌ *[지정 롤백 요청 실패]* `{target_tag}` 롤백 파이프라인을 시작하지 못했습니다.")
+                update_telegram_message(chat_id, message_id, f"❌ <b>[지정 롤백 요청 실패]</b> <code>{target_tag}</code> 롤백 파이프라인을 시작하지 못했습니다.")
 
-        elif callback_data.startswith("deploy_approve_"):
-            target_tag = callback_data.replace("deploy_approve_", "")
-            update_telegram_message(chat_id, message_id, f"⏳ *[배포 진행 중]* `{target_tag}` 버전 최적화 배포를 시작합니다...")
-            
-            # ✅ 수정 4: deploy.yaml 호출 시 GITOPS_TARGET_BRANCH (main) 강제 지정
-            trigger_github_workflow(
-                "deploy.yaml", 
-                {"target_tag": target_tag},
+        # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
+        elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
+            rest = callback_data[len("infra_approve"):].lstrip(":")
+            target_namespace, _, target_deployment = rest.partition(":")
+
+            if not target_namespace or not target_deployment:
+                target_namespace, target_deployment = "sample-fastapi", "sample-worker"
+
+            label = f"{target_namespace}/{target_deployment}"
+            update_telegram_message(
+                chat_id, message_id,
+                append_progress_status(original_text, f"⏳ <b>[적용 준비 중]</b> <code>{label}</code>의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다...")
+            )
+
+            # 상우 님 엔진에서 최신 final_cpu / final_memory 수치 동적 가져오기
+            recommendation = fetch_finops_recommendation(target_namespace, target_deployment)
+            if recommendation is None:
+                final_cpu, final_memory = "425m", "142Mi"
+            else:
+                final_cpu = recommendation.get("final_cpu", "425m")
+                final_memory = recommendation.get("final_memory", "142Mi")
+
+            update_telegram_message(
+                chat_id, message_id,
+                append_progress_status(
+                    original_text,
+                    f"⏳ <b>[적용 진행 중]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영을 시작합니다..."
+                )
+            )
+
+            # GitHub Actions (finops-apply.yaml) 실행
+            started = trigger_github_workflow(
+                "finops-apply.yaml",
+                {
+                    "namespace": target_namespace,
+                    "deployment_name": target_deployment,
+                    "cpu": final_cpu,
+                    "memory": final_memory,
+                },
                 ref=GITOPS_TARGET_BRANCH
             )
-            update_telegram_message(chat_id, message_id, f"🚀 *[배포 승인 완료]* `{target_tag}` 최적화 배포 파이프라인이 성공적으로 가동되었습니다!")
 
+            if started:
+                update_telegram_message(
+                    chat_id, message_id,
+                    append_progress_status(
+                        original_text,
+                        f"✅ <b>[적용 요청 완료]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영 파이프라인이 가동되었습니다!"
+                    )
+                )
+
+        # 4) FinOps 권장안 거부
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
             rest = callback_data[len("infra_reject"):].lstrip(":")
             parts = rest.split(":", 2)
@@ -449,11 +472,11 @@ async def telegram_callback_webhook(request: Request):
                 chat_id, message_id,
                 append_progress_status(
                     original_text,
-                    f"❌ <b>[반려 완료]</b> <code>{label}</code> 리소스 최적화 권장안을 반려했습니다. 현재 리소스 설정을 그대로 유지합니다."
-                ),
-                parse_mode="HTML"
+                    f"❌ <b>[거부 완료]</b> <code>{label}</code> 최적화 권장안을 거부했습니다. 현재 설정을 유지합니다."
+                )
             )
 
+<<<<<<< HEAD
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
             rest = callback_data[len("infra_approve"):].lstrip(":")
             parts = rest.split(":", 2)
@@ -522,4 +545,6 @@ async def telegram_callback_webhook(request: Request):
                         parse_mode="HTML"
                     )
 
+=======
+>>>>>>> 980d363 (feat: finalize alarm webhook logic and integrate finops endpoints)
     return {"status": "ok"}
