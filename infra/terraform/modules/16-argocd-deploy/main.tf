@@ -104,6 +104,9 @@ spec:
           frontend: true
         secrets:
           existingSecret: ${var.bank_jwt_secret_name}
+        redis:
+          host: ${var.sample_fastapi_redis_host}
+          port: ${var.sample_fastapi_redis_port}
   destination:
     server: https://kubernetes.default.svc
     namespace: frontend
@@ -144,6 +147,9 @@ spec:
           frontend: false
         secrets:
           existingSecret: ${var.bank_jwt_secret_name}
+        redis:
+          host: ${var.sample_fastapi_redis_host}
+          port: ${var.sample_fastapi_redis_port}
   destination:
     server: https://kubernetes.default.svc
     namespace: backend
