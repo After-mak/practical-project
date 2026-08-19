@@ -77,6 +77,13 @@ prometheus:
             mountPath: /prometheus
 %{ endif ~}
 grafana:
+  # persistence가 ReadWriteOnce PVC라 기본 RollingUpdate 전략(새 파드를 먼저 띄우고
+  # 옛 파드를 나중에 지움)과 근본적으로 충돌합니다 - 새 파드가 볼륨을 못 붙잡아
+  # Multi-Attach 에러로 영원히 Pending 상태가 되고, ArgoCD도 그 Deployment가
+  # Healthy해지길 기다리다 동기화 자체가 멈춥니다. Recreate로 바꿔서 옛 파드를
+  # 먼저 내리고 나서 새 파드를 띄우게 합니다.
+  strategy:
+    type: Recreate
   # Reflector가 krr-data-db-app Secret(finops)을 이 네임스페이스(prometheus)로
   # 복제해준 것을 env var로 주입합니다. CNPG가 비밀번호를 재발급해도 Reflector가
   # 복제본을 계속 갱신하므로, 여기서는 항상 최신 값을 읽게 됩니다.
@@ -89,6 +96,11 @@ grafana:
       secretKeyRef:
         name: krr-data-db-app
         key: password
+  # KRR-Logs(postgres) 데이터소스는 여기(additionalDataSources)로 등록하지 않습니다.
+  # kube-prometheus-stack의 grafana 서브차트가 jsonData의 일부 키(sslmode 등)만
+  # 통과시키고 database 같은 나머지 키를 누락시키는 문제가 있어서(재현 확인함),
+  # 대신 charts/grafana-finops-dashboard/templates/krr-datasource-configmap.yaml에서
+  # grafana_datasource=1 라벨 붙은 ConfigMap으로 직접 등록합니다 (대시보드와 같은 패턴).
   additionalDataSources:
     - name: Thanos
       type: prometheus
@@ -96,18 +108,6 @@ grafana:
       access: proxy
       isDefault: false
       version: 1
-    - name: KRR-Logs
-      uid: krr-logs-postgres
-      type: postgres
-      url: krr-data-db-rw.finops.svc.cluster.local:5432
-      database: krr_logs_db
-      user: $__env{KRR_DB_USER}
-      access: proxy
-      isDefault: false
-      jsonData:
-        sslmode: disable
-      secureJsonData:
-        password: $__env{KRR_DB_PASSWORD}
   sidecar:
     dashboards:
       enabled: true
