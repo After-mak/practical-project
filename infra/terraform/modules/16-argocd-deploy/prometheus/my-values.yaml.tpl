@@ -393,18 +393,18 @@ grafana:
               ]
             }
           }
-      # 주간/월간 리소스 사용 효율 보고서 (CPU, Memory, 스토리지, 영구볼륨, 네트워크)
+      # 월간 리소스 사용 효율 보고서 (CPU, Memory, 스토리지, 영구볼륨, 네트워크)
       finops-sizing-optimization:
         json: |
           {
-            "title": "주간/월간 리소스 사용 효율 보고서 (Cost & Sizing Optimization)",
+            "title": "월간 리소스 사용 효율 보고서 (Cost & Sizing Optimization)",
             "uid": "finops-sizing-optimization",
             "timezone": "browser",
             "schemaVersion": 39,
             "version": 1,
             "refresh": "1m",
             "time": { "from": "now-30d", "to": "now" },
-            "tags": ["finops", "thanos", "optimization"],
+            "tags": ["finops", "thanos", "optimization", "monthly"],
             "panels": [
               {
                 "id": 1,
@@ -606,9 +606,9 @@ grafana:
               },
               {
                 "id": 7,
-                "title": "📈 [30일 시계열 추세] 날짜별 CPU 낭비량 발생 시점 추적 TOP 5 (Cores)",
+                "title": "📈 [30일 시계열 추세] 네임스페이스별 CPU 낭비량 TOP 5 (Cores)",
                 "type": "timeseries",
-                "gridPos": { "h": 9, "w": 24, "x": 0, "y": 16 },
+                "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
                 "datasource": { "type": "prometheus", "uid": "$datasource" },
                 "fieldConfig": {
                   "defaults": {
@@ -623,9 +623,139 @@ grafana:
                 },
                 "targets": [
                   {
-                    "expr": "topk(5, sum by (namespace, created_by_name) (last_over_time(kube_pod_container_resource_requests{resource="cpu", container!="", container!="POD"}[1h])) - on(namespace, created_by_name) group_left() sum by (namespace, created_by_name) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[30m]))) > 0",
+                    "expr": "(sum by (namespace) (last_over_time(kube_pod_container_resource_requests{resource=\"cpu\", container!=\"\", container!=\"POD\"}[1h]) - on(namespace, pod, container) group_left() sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[30m]))) > 0) and on(namespace) topk(5, sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource=\"cpu\", container!=\"\", container!=\"POD\"}[$__range]) - on(namespace, pod, container) group_left() sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[$__range]))))",
                     "interval": "1h",
-                    "legendFormat": "{{namespace}} / {{created_by_name}}",
+                    "legendFormat": "{{namespace}}",
+                    "refId": "A"
+                  }
+                ]
+              },
+              {
+                "id": 8,
+                "title": "📈 [30일 시계열 추세] 네임스페이스별 Memory 낭비량 TOP 5 (Bytes)",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "bytes",
+                    "custom": {
+                      "drawStyle": "line",
+                      "lineInterpolation": "smooth",
+                      "connectNulls": true
+                    }
+                  },
+                  "overrides": []
+                },
+                "targets": [
+                  {
+                    "expr": "(sum by (namespace) (last_over_time(kube_pod_container_resource_requests{resource=\"memory\", container!=\"\", container!=\"POD\"}[1h]) - on(namespace, pod, container) group_left() sum by (namespace, pod, container) (avg_over_time(container_memory_working_set_bytes{container!=\"\", container!=\"POD\"}[1h]))) > 0) and on(namespace) topk(5, sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource=\"memory\", container!=\"\", container!=\"POD\"}[$__range]) - on(namespace, pod, container) group_left() sum by (namespace, pod, container) (avg_over_time(container_memory_working_set_bytes{container!=\"\", container!=\"POD\"}[$__range]))))",
+                    "interval": "1h",
+                    "legendFormat": "{{namespace}}",
+                    "refId": "A"
+                  }
+                ]
+              },
+              {
+                "id": 9,
+                "title": "📈 [30일 시계열 추세] 네임스페이스별 스토리지 사용량 TOP 5 (Bytes)",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "bytes",
+                    "custom": {
+                      "drawStyle": "line",
+                      "lineInterpolation": "smooth",
+                      "connectNulls": true
+                    }
+                  },
+                  "overrides": []
+                },
+                "targets": [
+                  {
+                    "expr": "sum by (namespace) (avg_over_time(kubelet_volume_stats_used_bytes[1h])) and on(namespace) topk(5, sum by (namespace) (avg_over_time(kubelet_volume_stats_used_bytes[$__range])))",
+                    "interval": "1h",
+                    "legendFormat": "{{namespace}}",
+                    "refId": "A"
+                  }
+                ]
+              },
+              {
+                "id": 10,
+                "title": "📈 [30일 시계열 추세] 네임스페이스별 평균 CPU 사용 효율 TOP 5 (%)",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "custom": {
+                      "drawStyle": "line",
+                      "lineInterpolation": "smooth",
+                      "connectNulls": true
+                    }
+                  },
+                  "overrides": []
+                },
+                "targets": [
+                  {
+                    "expr": "clamp_max((sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\", container!=\"POD\"}[30m])) / sum by (namespace) (last_over_time(kube_pod_container_resource_requests{resource=\"cpu\", container!=\"\", container!=\"POD\"}[1h]))) * 100, 100) and on(namespace) topk(5, sum by (namespace) (avg_over_time(kube_pod_container_resource_requests{resource=\"cpu\", container!=\"\", container!=\"POD\"}[$__range])))",
+                    "interval": "1h",
+                    "legendFormat": "{{namespace}}",
+                    "refId": "A"
+                  }
+                ]
+              },
+              {
+                "id": 11,
+                "title": "📈 [30일 시계열 추세] 주요 PVC별 용량 사용률 TOP 5 (%)",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "custom": {
+                      "drawStyle": "line",
+                      "lineInterpolation": "smooth",
+                      "connectNulls": true
+                    }
+                  },
+                  "overrides": []
+                },
+                "targets": [
+                  {
+                    "expr": "((sum by (namespace, persistentvolumeclaim) (last_over_time(kubelet_volume_stats_used_bytes[1h])) / sum by (namespace, persistentvolumeclaim) (last_over_time(kubelet_volume_stats_capacity_bytes[1h]))) * 100) and on(namespace, persistentvolumeclaim) topk(5, sum by (namespace, persistentvolumeclaim) (avg_over_time(kubelet_volume_stats_capacity_bytes[$__range])))",
+                    "interval": "1h",
+                    "legendFormat": "{{namespace}} / {{persistentvolumeclaim}}",
+                    "refId": "A"
+                  }
+                ]
+              },
+              {
+                "id": 12,
+                "title": "📈 [30일 시계열 추세] 네임스페이스별 네트워크 수신량 TOP 5 (Bps)",
+                "type": "timeseries",
+                "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+                "datasource": { "type": "prometheus", "uid": "$datasource" },
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "Bps",
+                    "custom": {
+                      "drawStyle": "line",
+                      "lineInterpolation": "smooth",
+                      "connectNulls": true
+                    }
+                  },
+                  "overrides": []
+                },
+                "targets": [
+                  {
+                    "expr": "sum by (namespace) (rate(container_network_receive_bytes_total[30m])) and on(namespace) topk(5, sum by (namespace) (rate(container_network_receive_bytes_total[$__range])))",
+                    "interval": "1h",
+                    "legendFormat": "{{namespace}}",
                     "refId": "A"
                   }
                 ]
