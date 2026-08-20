@@ -523,6 +523,14 @@ spec:
         query:
           enabled: true
           replicaCount: 1
+          # Thanos Query 메모리 증설 (2Gi)
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
           # Prometheus Sidecar와 Thanos Store를 연결
           stores:
             - "prometheus-operated.prometheus.svc.cluster.local:10901"
