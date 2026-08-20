@@ -187,6 +187,9 @@ spec:
         redis:
           host: ${var.sample_fastapi_redis_host}
           port: ${var.sample_fastapi_redis_port}
+        worker:
+          autoscaling:
+            mode: predictive
   destination:
     server: https://kubernetes.default.svc
     namespace: sample-fastapi
