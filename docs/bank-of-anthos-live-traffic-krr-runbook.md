@@ -43,20 +43,23 @@ kubectl logs -n prometheus <prometheus-pod> -c thanos-sidecar --since=24h
 
 ## Secret와 재현성
 
-전용 테스트 사용자를 사용하고 Secret은 클러스터에 수동 생성한다. 명령 이력에 실제 값을 남기지 않도록 파일 또는 보안 입력 경로를 사용한다.
+전용 테스트 사용자를 사용한다. 실제 값은 Git이나 Helm values에 넣지 않고 AWS Secrets
+Manager의 project03/bank-loadgen-credentials에 아래 JSON 형식으로 한 번 등록한다.
+dev/k8s Terraform 적용 시
+frontend/bank-loadgen-credentials Kubernetes Secret이 자동 생성되며, EKS를
+재생성한 뒤에도 같은 Terraform 적용으로 복구된다.
 
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: bank-loadgen-credentials
-  namespace: frontend
-type: Opaque
-stringData:
-  username: REDACTED
-  password: REDACTED
-  recipient-account: REDACTED
+```json
+{
+  "username": "REDACTED",
+  "password": "REDACTED",
+  "recipient-account": "REDACTED"
+}
 ```
+
+username과 password는 필수다. 기본 paymentPercent=0에서는 recipient-account를
+생략할 수 있다. Terraform state에도 Kubernetes Secret 값이 저장되므로 S3 backend
+암호화와 접근 권한을 제한한다.
 
 기본 `paymentPercent=0`은 로그인과 `/home` 조회 중심 흐름이며, 한 요청으로 frontend가 balance, history, contacts backend를 병렬 호출한다. 송금 검증은 충분한 초기 잔액을 가진 PRE/POST 전용 사용자를 동일 snapshot/seed로 복원할 수 있을 때만 별도 시나리오로 활성화한다.
 

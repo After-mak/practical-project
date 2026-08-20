@@ -44,6 +44,18 @@ variable "bank_jwt_kubernetes_secret_name" {
   default     = "bank-jwt-key-v2"
 }
 
+variable "enable_bank_loadgen_credentials" {
+  description = "AWS Secrets Manager의 Bank Load Generator 테스트 계정을 frontend Kubernetes Secret으로 자동 동기화할지 여부"
+  type        = bool
+  default     = true
+}
+
+variable "bank_loadgen_credentials_secretsmanager_name" {
+  description = "Bank Load Generator 테스트 계정이 저장된 AWS Secrets Manager 이름"
+  type        = string
+  default     = "project03/bank-loadgen-credentials"
+}
+
 variable "enable_krr_demo_seed" {
   description = "Prometheus 기동 전 KRR 시연용 더미 이력 데이터를 채우는 initContainer 활성화 여부 (dev/데모 환경 전용, 기본 비활성)"
   type        = bool
