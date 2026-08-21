@@ -21,6 +21,9 @@ env:
   prometheusUrl: "http://thanos-query.prometheus.svc.cluster.local:9090"
   chronosUrl: "http://chronos-model.monitoring.svc.cluster.local:8000"
   autoSendTelegram: "true"
+  # 상세 리포트 파일 + 통합 승인/거절 메시지를 실제로 전송하는 tg-gateway(alarm 서비스) 주소.
+  # finops는 텔레그램 API를 직접 호출하지 않고 이 주소로만 전달합니다.
+  tgGatewayUrl: "http://tg-gateway-service.default.svc.cluster.local:8000"
   # "text"(기본, 로컬 개발용) 또는 "json"(구조화 로그, CloudWatch/Datadog 파싱용)
   logFormat: "json"
   # KRR Logs 전용 CNPG DB 설정

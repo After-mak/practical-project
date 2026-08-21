@@ -4,7 +4,7 @@ import threading
 import time
 import base64
 from typing import Optional
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -167,6 +167,23 @@ def send_telegram_message(text: str, reply_markup: dict = None):
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
 
+def send_telegram_document(filename: str, content: bytes, caption: str = ""):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+    files = {"document": (filename, content, "text/plain")}
+    data = {"chat_id": TELEGRAM_CHAT_ID}
+    if caption:
+        data["caption"] = caption
+    try:
+        res = requests.post(url, data=data, files=files, timeout=30)
+        print(f"📎 Telegram 파일 전송 결과 -> 응답 코드: {res.status_code}")
+        if res.status_code != 200:
+            print(f"❌ Telegram 파일 전송 실패 상세: {res.text}")
+            return False
+        return True
+    except Exception as e:
+        print(f"❌ Telegram 파일 전송 에러: {e}")
+        return False
+
 def update_telegram_message(chat_id: int, message_id: int, new_text: str, parse_mode: str = "HTML"):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
     payload = {
@@ -318,6 +335,41 @@ async def handle_finops_report(payload: dict):
     msg_text = telegram_message if telegram_message else f"💡 <b>[FinOps 추천]</b> {namespace}/{deployment_name}"
     send_telegram_message(msg_text, reply_markup=reply_markup)
     return {"status": "ok", "message": "FinOps report sent to Telegram"}
+
+# 2-1. 전체 워크로드 상세 리포트 파일 수신 (승인/거절 메시지보다 먼저 도착해서 따로 열어볼 수 있음)
+@app.post("/webhook/deploy-batch-report")
+async def handle_deploy_batch_report(file: UploadFile = File(...), caption: str = Form("")):
+    content = await file.read()
+    ok = send_telegram_document(file.filename, content, caption)
+    return {"status": "ok" if ok else "error"}
+
+# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드 (워크로드마다 버튼 한 줄씩)
+@app.post("/webhook/deploy-batch-approval")
+async def handle_deploy_batch_approval(payload: dict):
+    workloads = payload.get("workloads", [])
+    if not workloads:
+        return {"status": "ignored", "reason": "no workloads in payload"}
+
+    lines = []
+    keyboard_rows = []
+    for w in workloads:
+        namespace = w.get("namespace", "")
+        deployment_name = w.get("deployment_name", "")
+        container_name = w.get("container_name", "")
+        overall_status = w.get("overall_status", "PASS")
+        line = w.get("line") or f"{namespace}/{deployment_name}/{container_name}"
+        lines.append(line)
+
+        if overall_status == "PASS" and namespace and deployment_name and container_name:
+            keyboard_rows.append([
+                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{namespace}:{deployment_name}:{container_name}"},
+                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{namespace}:{deployment_name}:{container_name}"}
+            ])
+
+    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드)\n\n" + "\n\n".join(lines)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    send_telegram_message(text, reply_markup=reply_markup)
+    return {"status": "ok", "message": "Batch approval message sent to Telegram"}
 
 # 3. KEDA 오토스케일링 수신
 @app.post("/webhook/keda-scale")

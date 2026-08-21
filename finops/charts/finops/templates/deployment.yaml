@@ -36,6 +36,8 @@ spec:
               value: {{ .Values.env.chronosUrl | quote }}
             - name: AUTO_SEND_TELEGRAM
               value: {{ .Values.env.autoSendTelegram | quote }}
+            - name: TG_GATEWAY_URL
+              value: {{ .Values.env.tgGatewayUrl | default "http://tg-gateway-service.default.svc.cluster.local:8000" | quote }}
             - name: LOG_FORMAT
               value: {{ .Values.env.logFormat | default "text" | quote }}
             - name: DB_USER

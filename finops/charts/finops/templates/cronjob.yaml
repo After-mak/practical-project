@@ -27,14 +27,12 @@ spec:
                 - -c
                 - |
                   echo "Executing daily FinOps analysis at 3:00 AM..."
-                  # targetNamespaces 각각에 대해 /analyze/namespace를 순차 호출해 KRR이 발견하는
-                  # 모든 워크로드를 전수 분석합니다. 네임스페이스 하나가 실패해도 나머지 네임스페이스
-                  # 분석은 계속 진행하고, 실패한 네임스페이스만 로그에 ERROR로 남깁니다.
-                  {{- range .Values.cronjob.targetNamespaces }}
-                  echo "Analyzing namespace: {{ . }}"
-                  curl -sf --max-time 600 -X POST "http://{{ include "finops.fullname" $ }}:{{ $.Values.service.port }}/analyze/namespace" \
+                  # targetNamespaces 전체를 /analyze/batch 한 번의 호출로 묶어서 전수 분석합니다.
+                  # 네임스페이스별로 /analyze/namespace를 따로 호출하면 텔레그램 알림도 네임스페이스
+                  # 수만큼 따로 오게 되므로, 배치 엔드포인트로 통합해 상세 리포트 파일 1개 +
+                  # 승인/거절 메시지 1개만 발송되도록 합니다.
+                  curl -sf --max-time 1800 -X POST "http://{{ include "finops.fullname" $ }}:{{ $.Values.service.port }}/analyze/batch" \
                     -H "Content-Type: application/json" \
-                    -d '{"namespace": "{{ . }}", "history_duration": "{{ $.Values.cronjob.historyDuration }}", "send_telegram": true}' \
-                    || echo "ERROR: namespace '{{ . }}' 분석 실패"
-                  {{- end }}
+                    -d '{"namespaces": [{{- range $i, $ns := .Values.cronjob.targetNamespaces }}{{ if $i }}, {{ end }}"{{ $ns }}"{{- end }}], "history_duration": "{{ .Values.cronjob.historyDuration }}", "send_telegram": true}' \
+                    || echo "ERROR: 배치 분석 실패"
 {{- end }}

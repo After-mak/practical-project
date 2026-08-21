@@ -483,6 +483,57 @@ class TelegramClient:
         return False
 
 
+class TgGatewayClient:
+    """
+    finops가 텔레그램 API(TelegramClient)를 직접 호출하지 않고, tg-gateway(alarm 서비스)를
+    거쳐 발송합니다. 실제 sendDocument/sendMessage 호출과 인라인 버튼 콜백 처리는
+    tg-gateway가 전담하고, finops는 "무엇을 보여줄지"(리포트 내용)만 결정합니다.
+    """
+    def __init__(self, gateway_url: str = ""):
+        self.gateway_url = gateway_url.rstrip("/")
+
+    def send_batch_report_file(self, filename: str, content: str, caption: str) -> bool:
+        """전체 워크로드 상세 리포트를 파일 하나로 묶어 tg-gateway에 전달합니다.
+        승인/거절 메시지보다 먼저 보내서 필요하면 따로 열어볼 수 있게 합니다."""
+        if not self.gateway_url:
+            logger.debug("[TgGatewayClient] gateway_url이 설정되지 않아 발송을 스킵합니다.")
+            return False
+        try:
+            resp = requests.post(
+                f"{self.gateway_url}/webhook/deploy-batch-report",
+                files={"file": (filename, content.encode("utf-8"), "text/plain")},
+                data={"caption": caption},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return True
+            logger.warning(f"[TgGatewayClient] 리포트 파일 전송 실패: {resp.status_code} {resp.text[:300]}")
+        except Exception as e:
+            logger.error(f"[TgGatewayClient] 리포트 파일 전송 에러: {e}")
+        return False
+
+    def send_batch_approval(self, workloads: list) -> bool:
+        """워크로드 전체를 담은 승인/거절 메시지 하나를 tg-gateway에 전달합니다.
+        workloads의 각 항목은 {namespace, deployment_name, container_name, overall_status, line}
+        형태이며, tg-gateway는 line들을 이어붙여 본문을 만들고 overall_status=="PASS"인
+        항목에만 승인/거절 버튼 한 줄씩을 붙입니다."""
+        if not self.gateway_url:
+            logger.debug("[TgGatewayClient] gateway_url이 설정되지 않아 발송을 스킵합니다.")
+            return False
+        try:
+            resp = requests.post(
+                f"{self.gateway_url}/webhook/deploy-batch-approval",
+                json={"workloads": workloads},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return True
+            logger.warning(f"[TgGatewayClient] 승인 메시지 전송 실패: {resp.status_code} {resp.text[:300]}")
+        except Exception as e:
+            logger.error(f"[TgGatewayClient] 승인 메시지 전송 에러: {e}")
+        return False
+
+
 class KrrDbClient:
     """
     KRR 분석 결과를 CNPG 데이터베이스(krr_logs_db)의 krr_logs 테이블에 저장하는 부분.
