@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import time
 import shutil
 import logging
@@ -7,9 +8,9 @@ from typing import Dict, Optional, Tuple
 from fastapi import FastAPI, HTTPException, status
 from app.schemas import (
     AnalysisRequest, AnalysisResponse, NamespaceAnalysisRequest, NamespaceAnalysisResponse,
-    ResourceSpec, PrometheusMetrics, ChronosForecast
+    BatchAnalysisRequest, ResourceSpec, PrometheusMetrics, ChronosForecast
 )
-from app.clients import KrrClient, PrometheusClient, ChronosClient, TelegramClient, KrrDbClient
+from app.clients import KrrClient, PrometheusClient, ChronosClient, TelegramClient, TgGatewayClient, KrrDbClient
 from app.engine import PolicyEngine, parse_cpu, parse_memory
 from app.formatter import ReportFormatter
 
@@ -53,12 +54,16 @@ CHRONOS_URL = os.getenv("CHRONOS_URL", "http://chronos-model.monitoring.svc.clus
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 AUTO_SEND_TELEGRAM = os.getenv("AUTO_SEND_TELEGRAM", "false").lower() == "true"
+# 텔레그램 API를 직접 부르지 않고, tg-gateway(alarm 서비스)로 리포트를 넘겨 발송을 위임합니다.
+# (tg-gateway 담당자 요청사항: finops는 리포트 "내용"만 만들고, 실제 발송/버튼 관리는 gateway가 전담)
+TG_GATEWAY_URL = os.getenv("TG_GATEWAY_URL", "http://tg-gateway-service.default.svc.cluster.local:8000")
 
 # 클라이언트 인스턴스화 (KRR은 별도 서비스가 아닌 내부 CLI로 실행되므로 prometheus_url을 전달)
 krr_client = KrrClient(PROMETHEUS_URL)
 prom_client = PrometheusClient(PROMETHEUS_URL)
 chronos_client = ChronosClient(CHRONOS_URL)
 telegram_client = TelegramClient(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+tg_gateway_client = TgGatewayClient(TG_GATEWAY_URL)
 krr_db_client = KrrDbClient()
 policy_engine = PolicyEngine()
 
@@ -238,16 +243,9 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
         policy_evaluations=policy_evals
     )
 
-    # 7. 텔레그램 Direct 메시지 전송 처리 (요청 또는 환경변수 설정 시)
+    # 7. 텔레그램 발송은 여기서 개별로 하지 않습니다. analyze_namespace()/analyze_workload()가
+    # 전체 워크로드 분석이 끝난 뒤 한 번에 모아서 tg-gateway로 보냅니다 (_send_combined_report 참고).
     telegram_sent = False
-    if send_telegram or AUTO_SEND_TELEGRAM:
-        telegram_sent = telegram_client.send_report(
-            telegram_message,
-            overall_status,
-            deployment_name=deployment_name,
-            namespace=namespace,
-            container_name=container_name,
-        )
 
     # 7-2. KRR 분석 결과를 CNPG DB (krr_logs 테이블)에 저장
     # Grafana에서 전/후 비교·절감액·실사용률·안전성(OOM/Throttling)을 바로 그릴 수 있도록
@@ -292,6 +290,50 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
     return result
 
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _send_combined_report(results: list) -> None:
+    """분석이 끝난 워크로드 전체(results)를 모아 tg-gateway로 두 번 발송합니다.
+    1) 상세 리포트 전체를 파일 하나로 묶어서 먼저 발송 (필요하면 따로 열어볼 수 있게)
+    2) 워크로드별 현재/KRR추천/최종추천 요약 + 승인/거절 버튼을 담은 메시지 하나를 그 다음에 발송
+    승인/거절이 다 끝난 뒤의 결과는 별도 요약 리포트 대신 Grafana 대시보드로 확인합니다."""
+    if not results:
+        return
+
+    # 1) 상세 리포트 파일 (HTML 태그를 제거한 읽기 쉬운 평문으로 구성)
+    file_parts = []
+    for r in results:
+        plain = _HTML_TAG_RE.sub("", r.telegram_message)
+        file_parts.append(plain.strip())
+    file_content = f"\n\n{'=' * 60}\n\n".join(file_parts)
+    now_label = time.strftime("%Y-%m-%d %H:%M:%S")
+    filename = f"finops-report-{time.strftime('%Y%m%d-%H%M%S')}.txt"
+    caption = f"📋 FinOps 분석 상세 리포트 ({now_label}, {len(results)}개 워크로드)"
+    tg_gateway_client.send_batch_report_file(filename, file_content, caption)
+
+    # 2) 승인/거절 요약 메시지 (워크로드마다 현재/KRR추천/최종추천만 간단히)
+    workloads = []
+    for r in results:
+        label = f"{r.namespace}/{r.deployment_name}/{r.container_name}"
+        if r.overall_status == "PASS":
+            line = (
+                f"<b>{label}</b>\n"
+                f"  CPU: {r.recommendations.current.cpu} → {r.recommendations.krr.cpu} → <b>{r.recommendations.final.cpu}</b>\n"
+                f"  Mem: {r.recommendations.current.memory} → {r.recommendations.krr.memory} → <b>{r.recommendations.final.memory}</b>"
+            )
+        else:
+            line = f"<b>{label}</b>\n  ⚠️ 정책 위반으로 승인 요청 생략 (현재값 유지)"
+        workloads.append({
+            "namespace": r.namespace,
+            "deployment_name": r.deployment_name,
+            "container_name": r.container_name,
+            "overall_status": r.overall_status,
+            "line": line,
+        })
+    tg_gateway_client.send_batch_approval(workloads)
+
+
 @app.get("/recommendation/{namespace}/{deployment_name}")
 def get_last_recommendation(namespace: str, deployment_name: str, container_name: Optional[str] = None):
     """
@@ -333,7 +375,10 @@ async def analyze_workload(request: AnalysisRequest):
     logger.info(f"Received analysis request: {request.deployment_name} in namespace '{request.namespace}' (send_telegram={request.send_telegram})")
 
     try:
-        return await _run_analysis(request.deployment_name, request.namespace, request.send_telegram, request.container_name, request.history_duration)
+        result = await _run_analysis(request.deployment_name, request.namespace, request.send_telegram, request.container_name, request.history_duration)
+        if request.send_telegram or AUTO_SEND_TELEGRAM:
+            _send_combined_report([result])
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -374,8 +419,53 @@ async def analyze_namespace(request: NamespaceAnalysisRequest):
         except Exception as e:
             logger.error("%s analysis failed: %s", identifier, e, exc_info=True)
 
+    if request.send_telegram or AUTO_SEND_TELEGRAM:
+        _send_combined_report(results)
+
     return NamespaceAnalysisResponse(
         namespace=request.namespace,
         analyzed_count=len(results),
         results=results
     )
+
+
+@app.post("/analyze/batch", response_model=Dict[str, NamespaceAnalysisResponse], status_code=status.HTTP_200_OK)
+async def analyze_batch(request: BatchAnalysisRequest):
+    """
+    여러 네임스페이스를 한 번에 전수 분석하고, 텔레그램은 이 전체를 통틀어 딱 한 번만
+    (상세 리포트 파일 1개 + 승인/거절 메시지 1개) 발송합니다. CronJob이 네임스페이스마다
+    /analyze/namespace를 따로 호출하면 그만큼 텔레그램 알림도 따로 왔었는데, 이 엔드포인트는
+    그 여러 호출을 하나로 묶어 "krr 알림 하나로 통합"하기 위한 용도입니다.
+    """
+    all_results = []
+    per_namespace: Dict[str, NamespaceAnalysisResponse] = {}
+
+    for namespace in request.namespaces:
+        namespace_scan = await krr_client.get_namespace_recommendations(namespace, request.history_duration)
+        results = []
+        if namespace_scan:
+            for identifier, krr_data in namespace_scan.items():
+                deployment_name = krr_data["workload"]
+                container_name = krr_data["container"]
+                try:
+                    result = await _run_analysis(
+                        deployment_name, namespace, False,
+                        container_name, request.history_duration, krr_data,
+                    )
+                    results.append(result)
+                    all_results.append(result)
+                except Exception as e:
+                    logger.error("%s analysis failed: %s", identifier, e, exc_info=True)
+        else:
+            logger.warning(f"네임스페이스 '{namespace}'에서 KRR이 발견한 워크로드가 없어 스킵합니다.")
+
+        per_namespace[namespace] = NamespaceAnalysisResponse(
+            namespace=namespace,
+            analyzed_count=len(results),
+            results=results
+        )
+
+    if request.send_telegram or AUTO_SEND_TELEGRAM:
+        _send_combined_report(all_results)
+
+    return per_namespace

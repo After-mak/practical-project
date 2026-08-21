@@ -4,7 +4,7 @@ import threading
 import time
 import base64
 from typing import Optional
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -167,6 +167,23 @@ def send_telegram_message(text: str, reply_markup: dict = None):
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
 
+def send_telegram_document(filename: str, content: bytes, caption: str = ""):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+    files = {"document": (filename, content, "text/plain")}
+    data = {"chat_id": TELEGRAM_CHAT_ID}
+    if caption:
+        data["caption"] = caption
+    try:
+        res = requests.post(url, data=data, files=files, timeout=30)
+        print(f"📎 Telegram 파일 전송 결과 -> 응답 코드: {res.status_code}")
+        if res.status_code != 200:
+            print(f"❌ Telegram 파일 전송 실패 상세: {res.text}")
+            return False
+        return True
+    except Exception as e:
+        print(f"❌ Telegram 파일 전송 에러: {e}")
+        return False
+
 def update_telegram_message(chat_id: int, message_id: int, new_text: str, parse_mode: str = "HTML"):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
     payload = {
@@ -204,12 +221,8 @@ def append_progress_status(original_text: str, status_line: str) -> str:
         return f"{original_text}\n\n{status_line}"
     return status_line
 
-<<<<<<< HEAD
-def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
-=======
 # 상우 님 FinOps 분석 엔진에서 동적 권장 리소스(final_cpu, final_memory) 조회
-def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
->>>>>>> 980d363 (feat: finalize alarm webhook logic and integrate finops endpoints)
+def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
     try:
         url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
         res = requests.get(url, params={"container_name": container_name}, timeout=10)
@@ -323,6 +336,41 @@ async def handle_finops_report(payload: dict):
     send_telegram_message(msg_text, reply_markup=reply_markup)
     return {"status": "ok", "message": "FinOps report sent to Telegram"}
 
+# 2-1. 전체 워크로드 상세 리포트 파일 수신 (승인/거절 메시지보다 먼저 도착해서 따로 열어볼 수 있음)
+@app.post("/webhook/deploy-batch-report")
+async def handle_deploy_batch_report(file: UploadFile = File(...), caption: str = Form("")):
+    content = await file.read()
+    ok = send_telegram_document(file.filename, content, caption)
+    return {"status": "ok" if ok else "error"}
+
+# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드 (워크로드마다 버튼 한 줄씩)
+@app.post("/webhook/deploy-batch-approval")
+async def handle_deploy_batch_approval(payload: dict):
+    workloads = payload.get("workloads", [])
+    if not workloads:
+        return {"status": "ignored", "reason": "no workloads in payload"}
+
+    lines = []
+    keyboard_rows = []
+    for w in workloads:
+        namespace = w.get("namespace", "")
+        deployment_name = w.get("deployment_name", "")
+        container_name = w.get("container_name", "")
+        overall_status = w.get("overall_status", "PASS")
+        line = w.get("line") or f"{namespace}/{deployment_name}/{container_name}"
+        lines.append(line)
+
+        if overall_status == "PASS" and namespace and deployment_name and container_name:
+            keyboard_rows.append([
+                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{namespace}:{deployment_name}:{container_name}"},
+                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{namespace}:{deployment_name}:{container_name}"}
+            ])
+
+    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드)\n\n" + "\n\n".join(lines)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    send_telegram_message(text, reply_markup=reply_markup)
+    return {"status": "ok", "message": "Batch approval message sent to Telegram"}
+
 # 3. KEDA 오토스케일링 수신
 @app.post("/webhook/keda-scale")
 async def keda_scale_webhook(request: Request):
@@ -409,57 +457,6 @@ async def telegram_callback_webhook(request: Request):
             else:
                 update_telegram_message(chat_id, message_id, f"❌ <b>[지정 롤백 요청 실패]</b> <code>{target_tag}</code> 롤백 파이프라인을 시작하지 못했습니다.")
 
-        # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
-        elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
-            rest = callback_data[len("infra_approve"):].lstrip(":")
-            target_namespace, _, target_deployment = rest.partition(":")
-
-            if not target_namespace or not target_deployment:
-                target_namespace, target_deployment = "sample-fastapi", "sample-worker"
-
-            label = f"{target_namespace}/{target_deployment}"
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(original_text, f"⏳ <b>[적용 준비 중]</b> <code>{label}</code>의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다...")
-            )
-
-            # 상우 님 엔진에서 최신 final_cpu / final_memory 수치 동적 가져오기
-            recommendation = fetch_finops_recommendation(target_namespace, target_deployment)
-            if recommendation is None:
-                final_cpu, final_memory = "425m", "142Mi"
-            else:
-                final_cpu = recommendation.get("final_cpu", "425m")
-                final_memory = recommendation.get("final_memory", "142Mi")
-
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(
-                    original_text,
-                    f"⏳ <b>[적용 진행 중]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영을 시작합니다..."
-                )
-            )
-
-            # GitHub Actions (finops-apply.yaml) 실행
-            started = trigger_github_workflow(
-                "finops-apply.yaml",
-                {
-                    "namespace": target_namespace,
-                    "deployment_name": target_deployment,
-                    "cpu": final_cpu,
-                    "memory": final_memory,
-                },
-                ref=GITOPS_TARGET_BRANCH
-            )
-
-            if started:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(
-                        original_text,
-                        f"✅ <b>[적용 요청 완료]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영 파이프라인이 가동되었습니다!"
-                    )
-                )
-
         # 4) FinOps 권장안 거부
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
             rest = callback_data[len("infra_reject"):].lstrip(":")
@@ -476,7 +473,7 @@ async def telegram_callback_webhook(request: Request):
                 )
             )
 
-<<<<<<< HEAD
+        # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
             rest = callback_data[len("infra_approve"):].lstrip(":")
             parts = rest.split(":", 2)
@@ -545,6 +542,4 @@ async def telegram_callback_webhook(request: Request):
                         parse_mode="HTML"
                     )
 
-=======
->>>>>>> 980d363 (feat: finalize alarm webhook logic and integrate finops endpoints)
     return {"status": "ok"}

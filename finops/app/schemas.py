@@ -15,6 +15,12 @@ class NamespaceAnalysisRequest(BaseModel):
     history_duration: str = Field(default="336h", description="KRR 분석 이력 범위(예: 24h, 7d)")
     send_telegram: bool = Field(default=False, description="분석 후 텔레그램 승인 요청 메시지 다이렉트 전송 여부")
 
+# 1-2. 여러 네임스페이스를 한 번에 전수 분석하고 텔레그램을 전체 통틀어 1회만 보내기 위한 스키마
+class BatchAnalysisRequest(BaseModel):
+    namespaces: List[str] = Field(default=["prod"], description="전수 분석할 쿠버네티스 네임스페이스 목록")
+    history_duration: str = Field(default="336h", description="KRR 분석 이력 범위(예: 24h, 7d)")
+    send_telegram: bool = Field(default=False, description="분석 후 텔레그램 승인 요청 메시지 다이렉트 전송 여부")
+
 # 2. CPU/메모리 리소스 규격 정의
 class ResourceSpec(BaseModel):
     cpu: str = Field(..., description="CPU 요청량 (예: 1000m, 500m)")
