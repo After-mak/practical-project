@@ -204,12 +204,8 @@ def append_progress_status(original_text: str, status_line: str) -> str:
         return f"{original_text}\n\n{status_line}"
     return status_line
 
-<<<<<<< HEAD
-def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
-=======
 # 상우 님 FinOps 분석 엔진에서 동적 권장 리소스(final_cpu, final_memory) 조회
-def fetch_finops_recommendation(namespace: str, deployment_name: str) -> Optional[dict]:
->>>>>>> 980d363 (feat: finalize alarm webhook logic and integrate finops endpoints)
+def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
     try:
         url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
         res = requests.get(url, params={"container_name": container_name}, timeout=10)
@@ -409,57 +405,6 @@ async def telegram_callback_webhook(request: Request):
             else:
                 update_telegram_message(chat_id, message_id, f"❌ <b>[지정 롤백 요청 실패]</b> <code>{target_tag}</code> 롤백 파이프라인을 시작하지 못했습니다.")
 
-        # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
-        elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
-            rest = callback_data[len("infra_approve"):].lstrip(":")
-            target_namespace, _, target_deployment = rest.partition(":")
-
-            if not target_namespace or not target_deployment:
-                target_namespace, target_deployment = "sample-fastapi", "sample-worker"
-
-            label = f"{target_namespace}/{target_deployment}"
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(original_text, f"⏳ <b>[적용 준비 중]</b> <code>{label}</code>의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다...")
-            )
-
-            # 상우 님 엔진에서 최신 final_cpu / final_memory 수치 동적 가져오기
-            recommendation = fetch_finops_recommendation(target_namespace, target_deployment)
-            if recommendation is None:
-                final_cpu, final_memory = "425m", "142Mi"
-            else:
-                final_cpu = recommendation.get("final_cpu", "425m")
-                final_memory = recommendation.get("final_memory", "142Mi")
-
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(
-                    original_text,
-                    f"⏳ <b>[적용 진행 중]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영을 시작합니다..."
-                )
-            )
-
-            # GitHub Actions (finops-apply.yaml) 실행
-            started = trigger_github_workflow(
-                "finops-apply.yaml",
-                {
-                    "namespace": target_namespace,
-                    "deployment_name": target_deployment,
-                    "cpu": final_cpu,
-                    "memory": final_memory,
-                },
-                ref=GITOPS_TARGET_BRANCH
-            )
-
-            if started:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(
-                        original_text,
-                        f"✅ <b>[적용 요청 완료]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영 파이프라인이 가동되었습니다!"
-                    )
-                )
-
         # 4) FinOps 권장안 거부
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
             rest = callback_data[len("infra_reject"):].lstrip(":")
@@ -476,7 +421,7 @@ async def telegram_callback_webhook(request: Request):
                 )
             )
 
-<<<<<<< HEAD
+        # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
             rest = callback_data[len("infra_approve"):].lstrip(":")
             parts = rest.split(":", 2)
@@ -545,6 +490,4 @@ async def telegram_callback_webhook(request: Request):
                         parse_mode="HTML"
                     )
 
-=======
->>>>>>> 980d363 (feat: finalize alarm webhook logic and integrate finops endpoints)
     return {"status": "ok"}
