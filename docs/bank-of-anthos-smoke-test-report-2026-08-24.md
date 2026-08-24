@@ -123,9 +123,9 @@ PRE/POST 비교용 p95/p99 regression과 resource reduction 기준은 PRE와 POS
 1. 네트워크 목표를 약 100 KB/s로 낮추거나 피크 단계에서 7개 이상을 미리 확보해 스파이크 시작 전에 10개에 도달하도록 수정한다.
 2. 응답 전송량은 포화 시 오히려 감소할 수 있으므로, 가능하면 요청 수·동시 요청·대기시간 기반 지표를 추가한다.
 3. 동일 30분 시나리오를 다시 실행해 error 0, dropped 0, restart 0, OOM 0을 확인한다.
-4. 통과 후 PRE 3시간(cycles=6)을 실행한다.
+4. 통과 후 PRE 3시간(`TIME_SCALE=0.75`, `CYCLES=3`)을 실행한다.
 5. KRR 권장값을 산출·적용하고 상태를 확인한다.
-6. 동일 조건 POST 3시간(cycles=6)을 실행한다.
+6. 동일 조건 POST 3시간(`TIME_SCALE=0.75`, `CYCLES=3`)을 실행한다.
 7. compare_bank_krr_runs.py로 전후 JSON/CSV/Markdown 비교 보고서를 생성한다.
 
 PRE와 POST는 RPS, cycles, 인증 방식, DB 상태, 이미지, 노드풀 조건을 동일하게 유지해야 한다.
