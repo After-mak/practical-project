@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "finops"))
+sys.path.insert(0, str(ROOT))
 
-from app.clients import KrrClient
+from finops.app.clients import KrrClient
 
 
 def row(workload: str, container: str, cpu: float, memory: float) -> dict:
@@ -59,7 +59,7 @@ async def test_history_duration_is_passed_to_krr(monkeypatch):
         captured.extend(args)
         return Process()
 
-    monkeypatch.setattr("app.clients.asyncio.create_subprocess_exec", fake_process)
+    monkeypatch.setattr("finops.app.clients.asyncio.create_subprocess_exec", fake_process)
     client = KrrClient("http://prometheus", "24h")
     assert await client._scan_namespace("backend") == {}
     assert captured[captured.index("--history_duration") + 1] == "24"
@@ -108,7 +108,7 @@ async def test_day_history_is_normalized_to_krr_hours(monkeypatch):
         captured.extend(args)
         return Process()
 
-    monkeypatch.setattr("app.clients.asyncio.create_subprocess_exec", fake_process)
+    monkeypatch.setattr("finops.app.clients.asyncio.create_subprocess_exec", fake_process)
     await KrrClient("http://prometheus")._scan_namespace("backend", "7d")
     assert captured[captured.index("--history_duration") + 1] == "168"
 

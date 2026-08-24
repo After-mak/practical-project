@@ -23,6 +23,20 @@ def load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def load_prometheus_values(*, enable_krr_demo_seed: bool = False) -> dict:
+    """Render the Terraform-only conditional before parsing the values YAML."""
+
+    source = PROMETHEUS_VALUES.read_text(encoding="utf-8")
+    conditional_start = "%{ if enable_krr_demo_seed ~}\n"
+    conditional_end = "%{ endif ~}\n"
+    prefix, remainder = source.split(conditional_start, 1)
+    optional_seed_config, suffix = remainder.split(conditional_end, 1)
+    rendered = prefix + (optional_seed_config if enable_krr_demo_seed else "") + suffix
+    rendered = rendered.replace("${grafana_admin_password}", "offline-test")
+    rendered = rendered.replace("${krr_demo_seed_image}", "offline-test")
+    return yaml.safe_load(rendered)
+
+
 def assert_labels_match(selector: dict, labels: dict) -> None:
     assert all(labels.get(key) == value for key, value in selector.items())
 
@@ -59,7 +73,7 @@ def test_worker_service_and_monitor_select_worker_pod_and_named_port():
 
 
 def test_prometheus_selects_sample_namespace_and_service_monitors():
-    values = load_yaml(PROMETHEUS_VALUES)
+    values = load_prometheus_values()
     prometheus_spec = values["prometheus"]["prometheusSpec"]
 
     assert prometheus_spec["serviceMonitorSelectorNilUsesHelmValues"] is False
@@ -70,7 +84,7 @@ def test_prometheus_selects_sample_namespace_and_service_monitors():
 
 
 def test_sample_fastapi_grafana_dashboard_has_scoped_workload_panels():
-    values = load_yaml(PROMETHEUS_VALUES)
+    values = load_prometheus_values()
     dashboard_json = values["grafana"]["dashboards"]["finops-dashboards"][
         "sample-fastapi-workload"
     ]["json"]
