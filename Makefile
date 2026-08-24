@@ -20,7 +20,9 @@ CURRENT_USER := $(shell echo "$(AWS_PROF)" | sed 's/admin-//')
 export AWS_PROFILE := $(AWS_PROF)
 
 # 모든 명령어를 .PHONY에 등록하여 파일 이름 충돌 방지 (가독성을 위해 분할)
-.PHONY: help setup check init fmt validate plan apply apply-auto auto-apply verify-dev output destroy
+.PHONY: help setup check init fmt validate plan apply apply-auto auto-apply verify-dev output destroy \
+	bank-help bank-config-smoke bank-config-pre bank-config-post bank-smoke bank-pre bank-post \
+	bank-status bank-stop bank-compare
 
 
 # 기본 명령어 (명령어 없이 make만 쳤을 때 가이드 출력)
@@ -40,6 +42,15 @@ help:
 	@echo "  make apply-auto    : AWS 실제 배포 (승인 생략 - 3단계 자동 진행)"
 	@echo "  make output        : 배포된 AWS 인프라 정보 확인"
 	@echo "  make destroy       : AWS 인프라 전체 삭제"
+	@echo "============================================================="
+	@echo " [Bank of Anthos - KRR 장기 검증]"
+	@echo "  make bank-help     : 실행 옵션과 PRE/POST 절차 확인"
+	@echo "  make bank-smoke    : 30분 Smoke 실행·수집"
+	@echo "  make bank-pre      : KRR 적용 전 3시간 실행·수집"
+	@echo "  make bank-post     : KRR 적용 후 3시간 실행·수집"
+	@echo "  make bank-status   : 실행 중인 Load Generator 상태 확인"
+	@echo "  make bank-stop RUN_ID=<id> : 지정 실행 중단"
+	@echo "  make bank-compare PRE_RUN=<dir> POST_RUN=<dir> : 전후 보고서 생성"
 	@echo "============================================================="
 
 
@@ -113,6 +124,39 @@ destroy:
 	@echo "▶ [2/2단계] AWS 기본 인프라(EKS, VPC 등) 삭제 중..."
 	cd $(TF_DEV_INFRA_DIR) && terraform destroy --auto-approve 
 
+
+# ── Bank of Anthos KRR 장기 트래픽 검증 ───────────────────────
+BANK_RUNNER := scripts/run-bank-krr-test.sh
+
+bank-help:
+	@$(BANK_RUNNER) help
+
+bank-config-smoke:
+	@$(BANK_RUNNER) config smoke
+
+bank-config-pre:
+	@$(BANK_RUNNER) config pre
+
+bank-config-post:
+	@$(BANK_RUNNER) config post
+
+bank-smoke:
+	@$(BANK_RUNNER) run smoke
+
+bank-pre:
+	@$(BANK_RUNNER) run pre
+
+bank-post:
+	@$(BANK_RUNNER) run post
+
+bank-status:
+	@RUN_ID="$(RUN_ID)" $(BANK_RUNNER) status
+
+bank-stop:
+	@RUN_ID="$(RUN_ID)" $(BANK_RUNNER) stop
+
+bank-compare:
+	@$(BANK_RUNNER) compare "$(PRE_RUN)" "$(POST_RUN)"
 # ── Ansible ───────────────────────────────────────────────────	
 
 

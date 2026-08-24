@@ -14,6 +14,49 @@
 - 비교: `k6/compare_bank_krr_runs.py`
 - 결과에는 Secret, 전체 환경변수 또는 JWT를 저장하지 않는다.
 - Queue producer가 Bank 코드에 없으므로 이번 검증은 Queue/Hybrid 결과를 포함하지 않는다.
+## 자동 실행
+
+`practical-project` 루트에서 실행한다. 실행기는 인프라를 생성하거나 KRR 권장값을
+적용하지 않으며, 이미 준비된 클러스터에 Load Generator Job만 배포한다.
+
+```bash
+cd /home/user1/project/sil-p/practical-project
+
+# 설정만 확인하며 Kubernetes 리소스를 만들지 않는다.
+make bank-config-smoke
+make bank-config-pre
+
+# 30분 Smoke
+make bank-smoke
+
+# PRE/POST에는 동일한 DB snapshot 또는 seed 식별자를 사용한다.
+DB_STATE_ID=boa-seed-v1 make bank-pre
+# 여기서 KRR 권장 request를 별도로 적용하고 Rollout 안정화를 확인한다.
+DB_STATE_ID=boa-seed-v1 make bank-post
+```
+
+연결이 끊겨도 계속 실행하려면 `tmux` 안에서 시작한다. 진행 상태와 중단 명령은 다음과 같다.
+
+```bash
+make bank-status
+make bank-status RUN_ID=boa-pre-20260825-000000
+make bank-stop RUN_ID=boa-pre-20260825-000000
+```
+
+각 실행 결과는 `k6/results/<run-id>/`에 저장된다. PRE/POST가 끝나면 결과 디렉터리를
+명시해 JSON, CSV, Markdown 비교 보고서를 생성한다.
+
+```bash
+make bank-compare \
+  PRE_RUN=k6/results/<pre-run-id> \
+  POST_RUN=k6/results/<post-run-id>
+```
+
+기본 PRE/POST 설정은 `PROFILE=long`, `TIME_SCALE=0.75`, `CYCLES=3`으로 각각
+3시간이다. 실행기는 사전 상태 확인, Helm 렌더링, Job 감시, PVC 결과 복사,
+Prometheus/Thanos 지표 수집, 단일 실행 판정, 임시 Job 정리를 수행한다. Secret 값과
+JWT는 결과에 기록하지 않으며 PVC 자체는 삭제하지 않는다.
+
 
 ## 실행 전 차단 조건
 
