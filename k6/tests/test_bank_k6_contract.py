@@ -54,6 +54,9 @@ def test_smoke_profile_is_exactly_30_minutes_and_has_required_phases():
     assert {item["tags"]["traffic_phase"] for item in payload["scenarios"].values()} == {
         "low", "normal", "peak", "spike", "recovery"
     }
+    source = SCRIPT.read_text()
+    assert "const REQUEST_TIMEOUT = __ENV.REQUEST_TIMEOUT || '10s';" in source
+    assert "timeout: REQUEST_TIMEOUT" in source
     assert "p(99)" in payload["summaryTrendStats"]
 
 

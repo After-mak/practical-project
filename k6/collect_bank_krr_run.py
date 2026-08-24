@@ -239,7 +239,7 @@ def load_k6_summary(path: Path) -> dict[str, Any]:
         },
         "summary_metadata": {
             key: summary.get(key)
-            for key in ("schema_version", "run_id", "phase", "scenario", "scenario_version", "profile", "time_scale", "cycles", "scenario_schedule", "finished_at")
+            for key in ("schema_version", "run_id", "phase", "scenario", "scenario_version", "profile", "time_scale", "cycles", "request_timeout", "scenario_schedule", "finished_at")
         },
     }
 

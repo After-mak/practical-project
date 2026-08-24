@@ -15,6 +15,7 @@ const RECOVERY_RPS = integerEnv('RECOVERY_RPS', 3, 1);
 const MAX_VUS = integerEnv('MAX_VUS', Math.max(100, SPIKE_RPS * 4), SPIKE_RPS);
 const PAYMENT_PERCENT = numberEnv('PAYMENT_PERCENT', 0, 0, 100);
 const PAYMENT_AMOUNT = __ENV.PAYMENT_AMOUNT || '0.01';
+const REQUEST_TIMEOUT = __ENV.REQUEST_TIMEOUT || '10s';
 const BASE_URL = (__ENV.BASE_URL || '').replace(/\/$/, '');
 
 validateEnvironment();
@@ -139,6 +140,7 @@ export function buildScenarios() {
 function request(method, path, body, params, flow, classify4xx = "business") {
   offeredRequests.add(1, { flow });
   const response = http.request(method, `${BASE_URL}${path}`, body, {
+    timeout: REQUEST_TIMEOUT,
     ...params,
     tags: { ...(params && params.tags ? params.tags : {}), flow },
   });
@@ -262,6 +264,7 @@ export function handleSummary(data) {
     profile: PROFILE,
     time_scale: TIME_SCALE,
     cycles: CYCLES,
+    request_timeout: REQUEST_TIMEOUT,
     scenario_schedule: scenarioSchedule(),
     finished_at: new Date().toISOString(),
     metrics: data.metrics,
