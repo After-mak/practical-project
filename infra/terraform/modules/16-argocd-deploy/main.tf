@@ -424,6 +424,8 @@ resource "null_resource" "krr_data_db_app_reflection" {
   }
 
   provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+
     command = <<-EOT
       set -euo pipefail
       aws eks update-kubeconfig --name project03-eks --region ap-northeast-2 --profile ${var.aws_profile}
