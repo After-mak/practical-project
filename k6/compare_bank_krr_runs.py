@@ -71,6 +71,10 @@ def request_capacity(run: dict[str, Any], resource_key: str) -> float | None:
     return total
 
 
+def cpu_limited(item: dict[str, Any]) -> bool:
+    return item.get("cpu_limit_cores_per_replica", {}).get("avg") not in (None, 0)
+
+
 def metrics_complete(run: dict[str, Any]) -> bool:
     items = list(run.get("workloads", {}).values())
     if len(items) != 11 or run.get("collection_warnings"):
@@ -79,14 +83,16 @@ def metrics_complete(run: dict[str, Any]) -> bool:
         required = (
             item.get("cpu_request_cores_per_replica", {}).get("avg"),
             item.get("memory_request_bytes_per_replica", {}).get("avg"),
-            item.get("cpu_throttling_ratio", {}).get("avg"),
-            item.get("cpu_throttling_ratio", {}).get("p95"),
             item.get("oom_killed_pods"),
             item.get("restart_increase"),
             item.get("replicas", {}).get("avg"),
         )
         if any(value is None for value in required):
             return False
+        if cpu_limited(item):
+            throttle = item.get("cpu_throttling_ratio", {})
+            if throttle.get("avg") is None or throttle.get("p95") is None:
+                return False
     return True
 
 
@@ -112,15 +118,20 @@ def aggregate_stability(run: dict[str, Any]) -> dict[str, float | None]:
     workloads = list(run.get("workloads", {}).values())
     if not workloads:
         return {"oom": None, "restarts": None, "throttle_avg_max": None, "throttle_p95_max": None}
+    limited = [item for item in workloads if cpu_limited(item)]
     oom = [item.get("oom_killed_pods") for item in workloads]
     restarts = [item.get("restart_increase") for item in workloads]
-    throttle_avg = [item.get("cpu_throttling_ratio", {}).get("avg") for item in workloads]
-    throttle_p95 = [item.get("cpu_throttling_ratio", {}).get("p95") for item in workloads]
+    throttle_avg = [
+        item.get("cpu_throttling_ratio", {}).get("avg") for item in limited
+    ]
+    throttle_p95 = [
+        item.get("cpu_throttling_ratio", {}).get("p95") for item in limited
+    ]
     return {
         "oom": sum(float(value) for value in oom) if all(value is not None for value in oom) else None,
         "restarts": sum(float(value) for value in restarts) if all(value is not None for value in restarts) else None,
-        "throttle_avg_max": max(float(value) for value in throttle_avg) if all(value is not None for value in throttle_avg) else None,
-        "throttle_p95_max": max(float(value) for value in throttle_p95) if all(value is not None for value in throttle_p95) else None,
+        "throttle_avg_max": max(float(value) for value in throttle_avg) if throttle_avg and all(value is not None for value in throttle_avg) else None,
+        "throttle_p95_max": max(float(value) for value in throttle_p95) if throttle_p95 and all(value is not None for value in throttle_p95) else None,
     }
 
 
@@ -176,13 +187,19 @@ def compare(pre: dict[str, Any], post: dict[str, Any], thresholds: dict[str, Any
         throttle_p95 = after.get("cpu_throttling_ratio", {}).get("p95")
         oom = after.get("oom_killed_pods")
         restarts = after.get("restart_increase")
+        throttling_stable = (
+            not cpu_limited(after)
+            or (
+                throttle_avg is not None
+                and throttle_p95 is not None
+                and throttle_avg < thresholds["cpu_throttling_avg_max"]
+                and throttle_p95 < thresholds["cpu_throttling_p95_max"]
+            )
+        )
         stable = (
-            throttle_avg is not None
-            and throttle_p95 is not None
+            throttling_stable
             and oom is not None
             and restarts is not None
-            and throttle_avg < thresholds["cpu_throttling_avg_max"]
-            and throttle_p95 < thresholds["cpu_throttling_p95_max"]
             and float(oom) <= thresholds["oom_increase_max"]
             and float(restarts) <= thresholds["restart_increase_max"]
         )

@@ -22,7 +22,7 @@ export AWS_PROFILE := $(AWS_PROF)
 # 모든 명령어를 .PHONY에 등록하여 파일 이름 충돌 방지 (가독성을 위해 분할)
 .PHONY: help setup check init fmt validate plan apply apply-auto auto-apply verify-dev output destroy \
 	bank-help bank-config-smoke bank-config-pre bank-config-post bank-smoke bank-pre bank-post \
-	bank-status bank-stop bank-compare
+	bank-status bank-stop bank-recheck bank-compare
 
 
 # 기본 명령어 (명령어 없이 make만 쳤을 때 가이드 출력)
@@ -50,6 +50,7 @@ help:
 	@echo "  make bank-post     : KRR 적용 후 3시간 실행·수집"
 	@echo "  make bank-status   : 실행 중인 Load Generator 상태 확인"
 	@echo "  make bank-stop RUN_ID=<id> : 지정 실행 중단"
+	@echo "  make bank-recheck RUN=<dir> : 저장된 단일 실행 재판정"
 	@echo "  make bank-compare PRE_RUN=<dir> POST_RUN=<dir> : 전후 보고서 생성"
 	@echo "============================================================="
 
@@ -154,6 +155,9 @@ bank-status:
 
 bank-stop:
 	@RUN_ID="$(RUN_ID)" $(BANK_RUNNER) stop
+
+bank-recheck:
+	@$(BANK_RUNNER) recheck "$(RUN)"
 
 bank-compare:
 	@$(BANK_RUNNER) compare "$(PRE_RUN)" "$(POST_RUN)"

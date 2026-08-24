@@ -45,6 +45,7 @@ def run(phase: str, cpu: float, memory: float, p95: float = 100, p99: float = 15
             identifier: {
                 "cpu_request_cores_per_replica": {"avg": cpu},
                 "memory_request_bytes_per_replica": {"avg": memory},
+                "cpu_limit_cores_per_replica": {"avg": 1.0},
                 "cpu_throttling_ratio": {"avg": throttle, "p95": throttle},
                 "oom_killed_pods": 0,
                 "restart_increase": 0,
@@ -116,3 +117,18 @@ def test_missing_metric_fails_closed(tmp_path):
     assert process.returncode == 2
     assert not result["checks"]["complete_metrics"]
     assert result["workloads"]["backend/userservice/worker"]["verdict"] == "FAIL"
+
+def test_unlimited_container_allows_missing_throttling_metrics(tmp_path):
+    pre = run("pre", 0.2, 256 * 1024 ** 2)
+    post = run("post", 0.15, 192 * 1024 ** 2)
+    identifier = "backend/userservice/userservice"
+    for payload in (pre, post):
+        payload["workloads"][identifier]["cpu_limit_cores_per_replica"]["avg"] = None
+        payload["workloads"][identifier]["cpu_throttling_ratio"] = {
+            "avg": None,
+            "p95": None,
+        }
+    process, result = invoke(tmp_path, pre, post)
+    assert process.returncode == 0
+    assert result["checks"]["complete_metrics"]
+    assert result["workloads"][identifier]["verdict"] == "PASS"

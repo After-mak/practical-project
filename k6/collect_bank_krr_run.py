@@ -170,11 +170,11 @@ def collect_workload(prom: Prometheus, namespace: str, workload: str, container:
     )
     restart = (
         f'sum(increase(kube_pod_container_status_restarts_total{{namespace="{namespace}",'
-        f'pod=~"^{workload}-.*",container="{container}"}}[{window}s]))'
+        f'pod=~"^{workload}-.*",container="{container}"}}[{window}s])) or vector(0)'
     )
     oom = (
         f'sum(max_over_time(kube_pod_container_status_last_terminated_reason{{namespace="{namespace}",'
-        f'pod=~"^{workload}-.*",container="{container}",reason="OOMKilled"}}[{window}s]))'
+        f'pod=~"^{workload}-.*",container="{container}",reason="OOMKilled"}}[{window}s])) or vector(0)'
     )
     replicas = f'count(kube_pod_info{{namespace="{namespace}",pod=~"^{workload}-.*"}})'
 

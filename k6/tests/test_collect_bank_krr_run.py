@@ -71,6 +71,7 @@ def test_collect_workload_includes_limits_and_uses_instant_window_counters():
     assert result["memory_limit_bytes_per_replica"]["avg"] == 1.0
     assert len(prom.instant_queries) == 2
     assert all("[3600s]" in query for query in prom.instant_queries)
+    assert all("or vector(0)" in query for query in prom.instant_queries)
 
 def test_krr_duration_parser_is_explicit():
     assert collector.parse_duration_seconds("24h") == 86400

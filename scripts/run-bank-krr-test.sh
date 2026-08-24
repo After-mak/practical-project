@@ -45,6 +45,7 @@ Bank of Anthos KRR 장기 트래픽 실행기
   scripts/run-bank-krr-test.sh status
   RUN_ID=<id> scripts/run-bank-krr-test.sh stop
   scripts/run-bank-krr-test.sh compare <pre-result-dir> <post-result-dir>
+  scripts/run-bank-krr-test.sh recheck <result-dir>
 
 Makefile 단축 명령:
   make bank-smoke
@@ -53,6 +54,7 @@ Makefile 단축 명령:
   make bank-status [RUN_ID=<id>]
   make bank-stop RUN_ID=<id>
   make bank-compare PRE_RUN=k6/results/<pre-id> POST_RUN=k6/results/<post-id>
+  make bank-recheck RUN=k6/results/<run-id>
 
 기본 실행 시간:
   smoke: PROFILE=smoke, TIME_SCALE=1, CYCLES=1 (30분)
@@ -463,9 +465,9 @@ http = source["http"]
 workloads = list(source.get("workloads", {}).values())
 
 
-def values(path):
+def values(items, path):
     result = []
-    for item in workloads:
+    for item in items:
         value = item
         for key in path:
             value = value.get(key) if isinstance(value, dict) else None
@@ -473,12 +475,35 @@ def values(path):
     return result
 
 
-throttle_avg = values(("cpu_throttling_ratio", "avg"))
-throttle_p95 = values(("cpu_throttling_ratio", "p95"))
-oom = values(("oom_killed_pods",))
-restarts = values(("restart_increase",))
+limited = [
+    item
+    for item in workloads
+    if item.get("cpu_limit_cores_per_replica", {}).get("avg") not in (None, 0)
+]
+throttle_avg = values(limited, ("cpu_throttling_ratio", "avg"))
+throttle_p95 = values(limited, ("cpu_throttling_ratio", "p95"))
+oom = values(workloads, ("oom_killed_pods",))
+restarts = values(workloads, ("restart_increase",))
+required_paths = (
+    ("cpu_request_cores_per_replica", "avg"),
+    ("memory_request_bytes_per_replica", "avg"),
+    ("oom_killed_pods",),
+    ("restart_increase",),
+    ("replicas", "avg"),
+)
+metrics_complete = (
+    len(workloads) == 11
+    and not source.get("collection_warnings")
+    and all(
+        value is not None
+        for path in required_paths
+        for value in values(workloads, path)
+    )
+    and bool(limited)
+    and all(value is not None for value in throttle_avg + throttle_p95)
+)
 checks = {
-    "metrics_complete": len(workloads) == 11 and not source.get("collection_warnings"),
+    "metrics_complete": metrics_complete,
     "system_error_rate": (
         http.get("system_error_rate") is not None
         and http["system_error_rate"] < 0.01
@@ -593,6 +618,15 @@ stop_run() {
     --ignore-not-found --wait=true
   note "임시 리소스 정리 완료. PVC의 기존 결과 파일은 유지됩니다."
 }
+recheck_run() {
+  local run_dir="${1:-}"
+  [[ -n "$run_dir" ]] || die "RUN 디렉터리가 필요합니다"
+  [[ "$run_dir" = /* ]] || run_dir="$ROOT_DIR/$run_dir"
+  [[ -f "$run_dir/collected.json" ]] \
+    || die "수집 결과가 없습니다: $run_dir/collected.json"
+  evaluate_run "$run_dir"
+}
+
 
 compare_runs() {
   local pre_dir="${1:-}" post_dir="${2:-}"
@@ -630,6 +664,7 @@ main() {
     status) show_status ;;
     stop) stop_run ;;
     compare) compare_runs "${2:-}" "${3:-}" ;;
+    recheck) recheck_run "${2:-}" ;;
     *) die "알 수 없는 명령입니다: $command (help를 확인하세요)" ;;
   esac
 }

@@ -51,6 +51,7 @@ def test_makefile_exposes_all_bank_commands():
         "bank-pre:",
         "bank-post:",
         "bank-status:",
+        "bank-recheck:",
         "bank-stop:",
         "bank-compare:",
     ):
