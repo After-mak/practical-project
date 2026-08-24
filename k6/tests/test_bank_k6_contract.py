@@ -57,6 +57,10 @@ def test_smoke_profile_is_exactly_30_minutes_and_has_required_phases():
     source = SCRIPT.read_text()
     assert "const REQUEST_TIMEOUT = __ENV.REQUEST_TIMEOUT || '10s';" in source
     assert "timeout: REQUEST_TIMEOUT" in source
+    assert "const AUTH_MODE = (__ENV.AUTH_MODE || 'shared').toLowerCase();" in source
+    assert "export function setup()" in source
+    assert "installSharedToken(data)" in source
+    assert "scenario_schedule: SCENARIO_SCHEDULE" in source
     assert "p(99)" in payload["summaryTrendStats"]
 
 
@@ -86,3 +90,12 @@ def test_missing_required_environment_and_payment_recipient_fail_clearly():
     )
     assert payment.returncode != 0
     assert "TEST_RECIPIENT_ACCOUNT is required" in payment.stderr
+
+    auth_mode = subprocess.run(
+        [K6, "inspect", *BASE_ARGS, "-e", "PHASE=smoke", "-e", "AUTH_MODE=invalid", str(SCRIPT)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert auth_mode.returncode != 0
+    assert "AUTH_MODE must be shared or per-vu" in auth_mode.stderr

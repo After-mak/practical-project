@@ -16,6 +16,7 @@ const MAX_VUS = integerEnv('MAX_VUS', Math.max(100, SPIKE_RPS * 4), SPIKE_RPS);
 const PAYMENT_PERCENT = numberEnv('PAYMENT_PERCENT', 0, 0, 100);
 const PAYMENT_AMOUNT = __ENV.PAYMENT_AMOUNT || '0.01';
 const REQUEST_TIMEOUT = __ENV.REQUEST_TIMEOUT || '10s';
+const AUTH_MODE = (__ENV.AUTH_MODE || 'shared').toLowerCase();
 const BASE_URL = (__ENV.BASE_URL || '').replace(/\/$/, '');
 
 validateEnvironment();
@@ -40,6 +41,8 @@ export const options = {
     version: __ENV.SCENARIO_VERSION || 'v1',
   },
 };
+
+const SCENARIO_SCHEDULE = scenarioSchedule(options.scenarios);
 
 function numberEnv(name, fallback, min, max = Number.POSITIVE_INFINITY) {
   const raw = __ENV[name];
@@ -68,6 +71,9 @@ function validateEnvironment() {
   }
   if (!['smoke', 'long'].includes(PROFILE)) {
     throw new Error(`PROFILE must be smoke or long; got '${PROFILE}'`);
+  }
+  if (!['shared', 'per-vu'].includes(AUTH_MODE)) {
+    throw new Error(`AUTH_MODE must be shared or per-vu; got '${AUTH_MODE}'`);
   }
   if (NORMAL_RPS < LOW_RPS || PEAK_RPS < NORMAL_RPS || SPIKE_RPS < PEAK_RPS) {
     throw new Error('RPS values must satisfy LOW <= NORMAL <= PEAK <= SPIKE');
@@ -137,6 +143,27 @@ export function buildScenarios() {
   return scenarios;
 }
 
+
+export function setup() {
+  if (AUTH_MODE !== 'shared') return {};
+  const response = http.post(
+    `${BASE_URL}/login`,
+    { username: __ENV.TEST_USERNAME, password: __ENV.TEST_PASSWORD },
+    { redirects: 0, timeout: REQUEST_TIMEOUT, tags: { flow: 'setup_login' } },
+  );
+  const tokenCookies = response.cookies && response.cookies.token;
+  const token = tokenCookies && tokenCookies.length > 0 ? tokenCookies[0].value : null;
+  if (response.status !== 302 || !(response.headers.Location || '').includes('/home') || !token) {
+    throw new Error(`shared authentication setup failed with status ${response.status}`);
+  }
+  return { token };
+}
+
+function installSharedToken(data) {
+  if (AUTH_MODE !== 'shared' || !data || !data.token) return;
+  const jar = http.cookieJar();
+  if (!jar.cookiesForURL(BASE_URL).token) jar.set(BASE_URL, 'token', data.token, { path: '/' });
+}
 function request(method, path, body, params, flow, classify4xx = "business") {
   offeredRequests.add(1, { flow });
   const response = http.request(method, `${BASE_URL}${path}`, body, {
@@ -232,8 +259,9 @@ function payment() {
   return ok;
 }
 
-export function bankFlow() {
+export function bankFlow(data) {
   offeredFlows.add(1, { flow: 'bank_flow' });
+  installSharedToken(data);
   const started = Date.now();
   let ok = ensureAuthenticated() && overview();
   if (ok && PAYMENT_PERCENT > 0 && Math.random() * 100 < PAYMENT_PERCENT) {
@@ -243,8 +271,8 @@ export function bankFlow() {
   flowSuccess.add(ok, { flow: 'bank_flow' });
 }
 
-function scenarioSchedule() {
-  return Object.entries(options.scenarios).map(([name, item]) => ({
+function scenarioSchedule(scenarios) {
+  return Object.entries(scenarios).map(([name, item]) => ({
     name,
     traffic_phase: item.tags.traffic_phase,
     start_time: item.startTime,
@@ -265,7 +293,8 @@ export function handleSummary(data) {
     time_scale: TIME_SCALE,
     cycles: CYCLES,
     request_timeout: REQUEST_TIMEOUT,
-    scenario_schedule: scenarioSchedule(),
+    auth_mode: AUTH_MODE,
+    scenario_schedule: SCENARIO_SCHEDULE,
     finished_at: new Date().toISOString(),
     metrics: data.metrics,
   };

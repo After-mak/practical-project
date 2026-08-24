@@ -24,6 +24,7 @@ def test_k6_summary_separates_failure_classes_and_dropped_iterations(tmp_path):
         "run_id": "run-pre",
         "phase": "pre",
         "scenario": "boa",
+        "auth_mode": "shared",
         "metrics": {
             "boa_offered_requests": {"values": {"count": 100, "rate": 10}},
             "boa_successful_requests": {"values": {"count": 97, "rate": 9.7}},
@@ -46,6 +47,7 @@ def test_k6_summary_separates_failure_classes_and_dropped_iterations(tmp_path):
     assert parsed["intentional_4xx"] == 3
     assert parsed["dropped_iterations"] == 4
     assert parsed["latency_ms"]["p95"] == 100
+    assert parsed["summary_metadata"]["auth_mode"] == "shared"
 
 
 def test_collect_workload_includes_limits_and_uses_instant_window_counters():
