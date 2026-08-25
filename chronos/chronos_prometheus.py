@@ -13,7 +13,7 @@ import os
 import re
 import subprocess
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Protocol, Sequence
@@ -387,6 +387,45 @@ def get_current_replicas(settings: ForecastSettings) -> int:
     except Exception as exc:
         print(f"현재 replica 수 조회 실패, 기본값 1 사용: {exc}")
         return 1
+
+
+def parse_targets_from_environment(
+    primary: ForecastSettings,
+    *,
+    env_var: str = "CHRONOS_TARGETS",
+) -> list[ForecastSettings]:
+    """CHRONOS_TARGETS(워크로드 목록 JSON)이 설정되어 있으면 각 항목을
+    개별 ForecastSettings로 변환합니다. 미설정 시 기존처럼 단일 대상
+    (primary)만 그대로 사용해 하위 호환을 유지합니다."""
+
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return [primary]
+
+    try:
+        entries = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{env_var} must be valid JSON: {exc}") from exc
+
+    if not entries:
+        return [primary]
+
+    targets: list[ForecastSettings] = []
+    for entry in entries:
+        namespace = entry["namespace"]
+        deployment = entry["deployment"]
+        container = entry.get("container", primary.container_name)
+        pod_pattern = entry.get("pod_pattern") or f"{re.escape(deployment)}-.*"
+        targets.append(
+            replace(
+                primary,
+                target_namespace=namespace,
+                target_deployment=deployment,
+                pod_pattern=pod_pattern,
+                container_name=container,
+            )
+        )
+    return targets
 
 
 def legacy_cli_settings_from_environment() -> ForecastSettings:

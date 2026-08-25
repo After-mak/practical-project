@@ -137,3 +137,51 @@ def test_unknown_target_is_not_silently_predicted():
     runtime.run_once()
 
     assert client.get("/predict/default/other").status_code == 404
+
+
+def test_multi_target_runtime_serves_independent_forecasts_per_workload():
+    primary_settings = make_settings(
+        target_namespace="frontend", target_deployment="mak-app-rollout"
+    )
+    extra_settings = make_settings(
+        target_namespace="backend", target_deployment="userservice"
+    )
+
+    runtime = ForecastRuntime(
+        primary_settings,
+        forecast=lambda: make_result(),
+        registry=CollectorRegistry(),
+        extra_targets=[extra_settings],
+    )
+    # backend/userservice 대상의 예측 함수만 별도 값으로 교체합니다.
+    runtime._forecast_fns[("backend", "userservice")] = lambda: ForecastResult(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        forecast_start_time=datetime.now(timezone.utc).isoformat(),
+        forecast_end_time=(
+            datetime.now(timezone.utc) + timedelta(minutes=12)
+        ).isoformat(),
+        namespace="backend",
+        deployment="userservice",
+        predicted_cpu_usage=0.05,
+        predicted_max_cpu_pct=5.0,
+        scale_out_needed=False,
+        current_replicas=1,
+        predicted_replicas=1,
+        source_points=120,
+    )
+
+    app = create_app(primary_settings, runtime, start_background=False)
+    client = TestClient(app)
+    runtime.run_once()
+
+    primary_resp = client.get("/predict/frontend/mak-app-rollout")
+    backend_resp = client.get("/predict/backend/userservice")
+    unknown_resp = client.get("/predict/backend/contacts")
+
+    assert primary_resp.status_code == 200
+    assert primary_resp.json()["predicted_max_cpu_pct"] == 240.0
+    assert backend_resp.status_code == 200
+    assert backend_resp.json()["predicted_max_cpu_pct"] == 5.0
+    # 서로 다른 워크로드에 동일한 예측값이 브로드캐스트되지 않아야 합니다.
+    assert primary_resp.json()["predicted_max_cpu_pct"] != backend_resp.json()["predicted_max_cpu_pct"]
+    assert unknown_resp.status_code == 404
