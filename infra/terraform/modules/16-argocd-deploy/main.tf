@@ -149,12 +149,25 @@ spec:
       kind: HTTPRoute
       jqPathExpressions:
         - .spec.rules[].backendRefs[].weight
+    - group: argoproj.io
+      kind: Rollout
+      name: mak-app-rollout
+      jsonPointers:
+        - /spec/replicas
+        - /spec/strategy/canary/activeService
+        - /spec/strategy/canary/previewService
+        - /spec/strategy/canary/trafficRouting
+    - group: gateway.k8s.aws
+      kind: TargetGroupConfiguration
+      jqPathExpressions:
+        - .spec.defaultConfiguration.healthCheck
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - RespectIgnoreDifferences=true
 YAML
 }
 
