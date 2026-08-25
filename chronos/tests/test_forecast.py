@@ -11,6 +11,7 @@ from chronos_prometheus import (
     build_cpu_query,
     fetch_cpu_series,
     legacy_cli_settings_from_environment,
+    parse_targets_from_environment,
 )
 
 
@@ -222,6 +223,42 @@ def test_fake_replicas_bypass_prometheus_and_model_for_keda_contract_test():
     assert result.predicted_replicas == 3
     assert result.source_points == 0
     assert model.values is None
+
+
+def test_parse_targets_falls_back_to_primary_when_env_unset(monkeypatch):
+    monkeypatch.delenv("CHRONOS_TARGETS", raising=False)
+
+    primary = settings()
+    targets = parse_targets_from_environment(primary)
+
+    assert targets == [primary]
+
+
+def test_parse_targets_expands_each_workload_from_json_env(monkeypatch):
+    monkeypatch.setenv(
+        "CHRONOS_TARGETS",
+        (
+            '[{"namespace": "frontend", "deployment": "mak-app-rollout", '
+            '"pod_pattern": "mak-app-rollout-.*", "container": "mak-container"}, '
+            '{"namespace": "backend", "deployment": "userservice", '
+            '"container": "userservice"}]'
+        ),
+    )
+
+    primary = settings(target_namespace="sample-fastapi", target_deployment="sample-worker")
+    targets = parse_targets_from_environment(primary)
+
+    assert [(t.target_namespace, t.target_deployment) for t in targets] == [
+        ("frontend", "mak-app-rollout"),
+        ("backend", "userservice"),
+    ]
+    assert targets[0].pod_pattern == "mak-app-rollout-.*"
+    assert targets[0].container_name == "mak-container"
+    # pod_pattern이 없는 항목은 deployment 이름으로 자동 생성됩니다.
+    assert targets[1].pod_pattern == "userservice-.*"
+    # 나머지 튜닝값은 primary 설정을 그대로 물려받습니다.
+    assert targets[1].prometheus_url == primary.prometheus_url
+    assert targets[1].mode == primary.mode
 
 
 def test_legacy_cli_keeps_current_replicas_when_scale_out_is_not_needed():
