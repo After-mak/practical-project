@@ -151,8 +151,6 @@ class CustomRollbackRequest(BaseModel):
 # 🛠️ Helper 함수들
 # ==========================================
 def send_telegram_message(text: str, reply_markup: dict = None):
-    """성공 시 전송된 메시지의 message_id를, 실패/에러 시 None을 반환합니다.
-    (기존 호출부들은 반환값을 안 쓰므로 그대로 호환됩니다.)"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -166,11 +164,8 @@ def send_telegram_message(text: str, reply_markup: dict = None):
         print(f"📲 Telegram 전송 결과 -> 응답 코드: {res.status_code}")
         if res.status_code != 200:
             print(f"❌ Telegram 전송 실패 상세: {res.text}")
-            return None
-        return res.json().get("result", {}).get("message_id")
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
-        return None
 
 def send_telegram_document(filename: str, content: bytes, caption: str = ""):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
@@ -226,34 +221,8 @@ def append_progress_status(original_text: str, status_line: str) -> str:
         return f"{original_text}\n\n{status_line}"
     return status_line
 
-# message_id -> [(namespace, deployment_name, container_name), ...]. 배치 승인 메시지 안에서
-# 버튼이 몇 번째 워크로드를 가리키는지 순서로 기억해둡니다. namespace/deployment/container를
-# callback_data에 직접 담으면 이름이 긴 워크로드(예: 자동 생성된 부하테스트 Job 이름)에서
-# 텔레그램 콜백 데이터 64바이트 제한을 넘어 메시지 전체 전송이 실패하는 문제가 실제로
-# 있었습니다(재현 확인). 대신 짧은 인덱스만 담고, 실제 식별자는 여기서 message_id 기준으로
-# 조회합니다. 파드가 재시작되면(다른 캐시들과 동일하게) 그 사이 보낸 메시지의 매핑은 사라집니다.
-_batch_approval_registry: dict = {}
-
-def _resolve_batch_target(callback_data: str, prefix: str, message_id: int):
-    """콜백 데이터에서 실제 namespace/deployment/container를 알아냅니다.
-    최신 형식은 `prefix:<인덱스>`(_batch_approval_registry에서 message_id 기준 조회)이고,
-    구버전 메시지(그리고 /webhook/deploy-request 단건 경로) 호환을 위해
-    `prefix:<namespace>:<deployment>[:<container>]` 형식도 계속 지원합니다."""
-    rest = callback_data[len(prefix):].lstrip(":")
-    if rest.isdigit():
-        entries = _batch_approval_registry.get(message_id, [])
-        idx = int(rest)
-        if 0 <= idx < len(entries):
-            return entries[idx]
-        return ("", "", "")
-    parts = rest.split(":", 2)
-    namespace = parts[0] if len(parts) > 0 else ""
-    deployment = parts[1] if len(parts) > 1 else ""
-    container = parts[2] if len(parts) > 2 else ""
-    return (namespace, deployment, container)
-
 # 상우 님 FinOps 분석 엔진에서 동적 권장 리소스(final_cpu, final_memory) 조회
-def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
+def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str = "worker") -> Optional[dict]:
     try:
         url = f"{FINOPS_URL}/recommendation/{namespace}/{deployment_name}"
         res = requests.get(url, params={"container_name": container_name}, timeout=10)
@@ -349,6 +318,7 @@ async def alertmanager_webhook(request: Request):
 async def handle_finops_report(payload: dict):
     deployment_name = payload.get("deployment_name", payload.get("deployment", "sample-worker"))
     namespace = payload.get("namespace", "sample-fastapi")
+    container_name = payload.get("container_name", "worker")
     telegram_message = payload.get("telegram_message", "")
     overall_status = payload.get("overall_status", "PASS")
     
@@ -357,8 +327,8 @@ async def handle_finops_report(payload: dict):
     if overall_status == "PASS":
         reply_markup = {
             "inline_keyboard": [[
-                {"text": "✅ 승인 (Apply)", "callback_data": f"infra_approve:{namespace}:{deployment_name}"},
-                {"text": "❌ 거부 (Reject)", "callback_data": f"infra_reject:{namespace}:{deployment_name}"}
+                {"text": "✅ 승인 (Apply)", "callback_data": f"infra_approve:{namespace}:{deployment_name}:{container_name}"},
+                {"text": "❌ 거부 (Reject)", "callback_data": f"infra_reject:{namespace}:{deployment_name}:{container_name}"}
             ]]
         }
     
@@ -374,11 +344,7 @@ async def handle_deploy_batch_report(file: UploadFile = File(...), caption: str 
     ok = send_telegram_document(file.filename, content, caption)
     return {"status": "ok" if ok else "error"}
 
-# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드.
-# 워크로드마다 버튼을 따로 두면(이전 방식) 메시지를 반복 편집할 때마다 reply_markup을 다시 안
-# 실어보내는 문제로 버튼이 통째로 사라지는 게 재현됐고, 그렇다고 승인/거절할 때마다 새 메시지를
-# 보내면 애초에 메시지를 하나로 합치려던 목적과 반대로 메시지가 늘어납니다. 그래서 버튼은
-# "전체 승인"/"전체 거절" 한 쌍만 두고, 눌렀을 때 PASS인 워크로드 전체를 한 번에 반영합니다.
+# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드 (워크로드마다 버튼 한 줄씩)
 @app.post("/webhook/deploy-batch-approval")
 async def handle_deploy_batch_approval(payload: dict):
     workloads = payload.get("workloads", [])
@@ -386,7 +352,7 @@ async def handle_deploy_batch_approval(payload: dict):
         return {"status": "ignored", "reason": "no workloads in payload"}
 
     lines = []
-    registry_entries = []
+    keyboard_rows = []
     for w in workloads:
         namespace = w.get("namespace", "")
         deployment_name = w.get("deployment_name", "")
@@ -396,20 +362,14 @@ async def handle_deploy_batch_approval(payload: dict):
         lines.append(line)
 
         if overall_status == "PASS" and namespace and deployment_name and container_name:
-            registry_entries.append((namespace, deployment_name, container_name))
+            keyboard_rows.append([
+                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{namespace}:{deployment_name}:{container_name}"},
+                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{namespace}:{deployment_name}:{container_name}"}
+            ])
 
-    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드, 승인 대상 {len(registry_entries)}개)\n\n" + "\n\n".join(lines)
-    reply_markup = None
-    if registry_entries:
-        reply_markup = {
-            "inline_keyboard": [[
-                {"text": f"✅ 전체 승인 ({len(registry_entries)}개)", "callback_data": "infra_approve_all"},
-                {"text": "❌ 전체 거절", "callback_data": "infra_reject_all"},
-            ]]
-        }
-    message_id = send_telegram_message(text, reply_markup=reply_markup)
-    if message_id and registry_entries:
-        _batch_approval_registry[message_id] = registry_entries
+    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드)\n\n" + "\n\n".join(lines)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    send_telegram_message(text, reply_markup=reply_markup)
     return {"status": "ok", "message": "Batch approval message sent to Telegram"}
 
 # 3. KEDA 오토스케일링 수신
@@ -498,145 +458,79 @@ async def telegram_callback_webhook(request: Request):
             else:
                 update_telegram_message(chat_id, message_id, f"❌ <b>[지정 롤백 요청 실패]</b> <code>{target_tag}</code> 롤백 파이프라인을 시작하지 못했습니다.")
 
-        # 4-0) 배치 승인 메시지 전체 거절 (버튼 한 쌍으로 통합된 방식)
-        elif callback_data == "infra_reject_all":
-            entries = _batch_approval_registry.pop(message_id, [])
-            count = len(entries)
+        # 3) FinOps 최적화 권장안 승인 (콜백 인자 유실 시 Fallback 기본값 자동 매핑)
+      # 3) FinOps 최적화 권장안 승인 (콜백 인자 유실 시 Fallback 기본값 자동 매핑)
+        elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
+            rest = callback_data[len("infra_approve"):].lstrip(":")
+            parts = rest.split(":") if rest else []
+            
+            target_namespace = parts[0] if len(parts) > 0 and parts[0] else "sample-fastapi"
+            target_deployment = parts[1] if len(parts) > 1 and parts[1] else "sample-worker"
+            target_container = parts[2] if len(parts) > 2 and parts[2] else "worker"
+
+            label = f"{target_namespace}/{target_deployment}/{target_container}"
+            update_telegram_message(
+                chat_id, message_id,
+                append_progress_status(original_text, f"⏳ <b>[적용 준비 중]</b> <code>{label}</code>의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다..."),
+                parse_mode="HTML"
+            )
+
+            # 권장값 조회 (없을 시 기본값 Fallback)
+            recommendation = fetch_finops_recommendation(target_namespace, target_deployment, target_container)
+            if recommendation is None:
+                final_cpu = "298m"
+                final_memory = "100Mi"
+            else:
+                final_cpu = recommendation.get("final_cpu", "298m")
+                final_memory = recommendation.get("final_memory", "100Mi")
+
             update_telegram_message(
                 chat_id, message_id,
                 append_progress_status(
                     original_text,
-                    f"❌ <b>[전체 거부 완료]</b> {count}개 워크로드의 최적화 권장안을 전부 거부했습니다. 현재 설정을 유지합니다."
-                )
+                    f"⏳ <b>[적용 진행 중]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영을 시작합니다..."
+                ),
+                parse_mode="HTML"
             )
 
-        # 3-0) 배치 승인 메시지 전체 승인 (버튼 한 쌍으로 통합된 방식) - 순서대로 각 워크로드에
-        # 최신 권장값을 재조회하여 finops-apply.yaml을 반영합니다.
-        elif callback_data == "infra_approve_all":
-            entries = _batch_approval_registry.pop(message_id, [])
-            if not entries:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(
-                        original_text,
-                        "⚠️ <b>[적용 실패]</b> 이 메시지의 워크로드 목록을 찾을 수 없습니다 (서비스 재시작 등으로 유실됐을 수 있습니다). FinOps에서 분석을 다시 실행한 뒤 승인해주세요."
-                    )
-                )
-            else:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(original_text, f"⏳ <b>[전체 적용 시작]</b> {len(entries)}개 워크로드를 순서대로 반영합니다...")
-                )
-                result_lines = []
-                for target_namespace, target_deployment, target_container in entries:
-                    label = f"{target_namespace}/{target_deployment}/{target_container}"
-                    recommendation = fetch_finops_recommendation(target_namespace, target_deployment, target_container)
-                    if recommendation is None:
-                        result_lines.append(f"⚠️ <code>{label}</code>: 최근 분석 결과를 찾을 수 없어 건너뜀")
-                        continue
-                    final_cpu = recommendation["final_cpu"]
-                    final_memory = recommendation["final_memory"]
-                    started = trigger_github_workflow(
-                        "finops-apply.yaml",
-                        {
-                            "namespace": target_namespace,
-                            "deployment_name": target_deployment,
-                            "container_name": target_container,
-                            "cpu": final_cpu,
-                            "memory": final_memory,
-                        },
-                        ref=GITOPS_TARGET_BRANCH
-                    )
-                    icon = "✅" if started else "❌"
-                    result_lines.append(f"{icon} <code>{label}</code>: CPU {final_cpu} / Memory {final_memory}")
-
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(
-                        original_text,
-                        f"✅ <b>[전체 적용 요청 완료]</b> {len(entries)}개 워크로드 반영 파이프라인이 시작되었습니다!\n\n" + "\n".join(result_lines)
-                    )
-                )
+            # GitHub Actions 트리거
+            trigger_github_workflow(
+                "finops-apply.yaml",
+                {
+                    "namespace": target_namespace,
+                    "deployment_name": target_deployment,
+                    "container_name": target_container,
+                    "cpu": final_cpu,
+                    "memory": final_memory,
+                },
+                ref=GITOPS_TARGET_BRANCH
+            )
+            
+            update_telegram_message(
+                chat_id, message_id,
+                append_progress_status(
+                    original_text,
+                    f"✅ <b>[적용 요청 완료]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영 파이프라인이 시작되었습니다!"
+                ),
+                parse_mode="HTML"
+            )
 
         # 4) FinOps 권장안 거부
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
-            target_namespace, target_deployment, target_container = _resolve_batch_target(
-                callback_data, "infra_reject", message_id
-            )
-            label = f"{target_namespace}/{target_deployment}/{target_container}" if target_deployment and target_container else "대상 워크로드"
+            rest = callback_data[len("infra_reject"):].lstrip(":")
+            parts = rest.split(":") if rest else []
+            target_namespace = parts[0] if len(parts) > 0 and parts[0] else "sample-fastapi"
+            target_deployment = parts[1] if len(parts) > 1 and parts[1] else "sample-worker"
+            target_container = parts[2] if len(parts) > 2 and parts[2] else "worker"
+            label = f"{target_namespace}/{target_deployment}/{target_container}"
+            
             update_telegram_message(
                 chat_id, message_id,
                 append_progress_status(
                     original_text,
                     f"❌ <b>[거부 완료]</b> <code>{label}</code> 최적화 권장안을 거부했습니다. 현재 설정을 유지합니다."
-                )
+                ),
+                parse_mode="HTML"
             )
-
-        # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
-        elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
-            target_namespace, target_deployment, target_container = _resolve_batch_target(
-                callback_data, "infra_approve", message_id
-            )
-
-            if not target_namespace or not target_deployment or not target_container:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(
-                        original_text,
-                        "⚠️ <b>[적용 실패]</b> 콜백 데이터에 namespace/deployment/container 정보가 없어 어떤 워크로드에 적용할지 알 수 없습니다."
-                    ),
-                    parse_mode="HTML"
-                )
-            else:
-                label = f"{target_namespace}/{target_deployment}/{target_container}"
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(original_text, f"⏳ <b>[적용 준비 중]</b> <code>{label}</code>의 최신 권장값을 FinOps 엔진에서 조회하는 중입니다..."),
-                    parse_mode="HTML"
-                )
-
-                recommendation = fetch_finops_recommendation(target_namespace, target_deployment, target_container)
-                if recommendation is None:
-                    update_telegram_message(
-                        chat_id, message_id,
-                        append_progress_status(
-                            original_text,
-                            f"⚠️ <b>[적용 실패]</b> <code>{label}</code>의 최근 분석 결과를 찾을 수 없습니다 (만료되었거나 FinOps 엔진 연결 실패). "
-                            f"FinOps에서 분석을 다시 실행한 뒤 승인해주세요."
-                        ),
-                        parse_mode="HTML"
-                    )
-                else:
-                    final_cpu = recommendation["final_cpu"]
-                    final_memory = recommendation["final_memory"]
-                    update_telegram_message(
-                        chat_id, message_id,
-                        append_progress_status(
-                            original_text,
-                            f"⏳ <b>[적용 진행 중]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영을 시작합니다..."
-                        ),
-                        parse_mode="HTML"
-                    )
-
-                    # ✅ 수정 5: finops-apply.yaml 호출 시에도 GITOPS_TARGET_BRANCH (main) 강제 지정
-                    trigger_github_workflow(
-                        "finops-apply.yaml",
-                        {
-                            "namespace": target_namespace,
-                            "deployment_name": target_deployment,
-                            "container_name": target_container,
-                            "cpu": final_cpu,
-                            "memory": final_memory,
-                        },
-                        ref=GITOPS_TARGET_BRANCH
-                    )
-                    update_telegram_message(
-                        chat_id, message_id,
-                        append_progress_status(
-                            original_text,
-                            f"✅ <b>[적용 요청 완료]</b> <code>{label}</code>에 CPU <code>{final_cpu}</code> / Memory <code>{final_memory}</code> 반영 파이프라인이 시작되었습니다!"
-                        ),
-                        parse_mode="HTML"
-                    )
 
     return {"status": "ok"}
