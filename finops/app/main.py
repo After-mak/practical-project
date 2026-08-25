@@ -227,8 +227,12 @@ async def _run_analysis(deployment_name: str, namespace: str, send_telegram: boo
     final_cpu_val = parse_cpu(recommendations.final.cpu)
     final_mem_val = parse_memory(recommendations.final.memory)
 
-    cpu_reduction_pct = max(0.0, ((curr_cpu_val - final_cpu_val) / curr_cpu_val) * 100.0) if curr_cpu_val > 0 else 0.0
-    memory_reduction_pct = max(0.0, ((curr_mem_val - final_mem_val) / curr_mem_val) * 100.0) if curr_mem_val > 0 else 0.0
+    # 부호 있는 값으로 계산합니다: 양수 = 절감(감소), 음수 = 증가.
+    # cost_change_pct와 동일한 이유로 max(0.0, ...) 클램핑을 하지 않습니다 — 예를 들어
+    # RULE_05로 다른 워크로드가 KRR 증가 추천을 그대로 반영하면 CPU/Memory가 실제로 늘어나는데,
+    # 여기서 0%로 뭉개면 운영자가 리포트만 보고 "감소했다"고 오인하게 됩니다.
+    cpu_reduction_pct = ((curr_cpu_val - final_cpu_val) / curr_cpu_val) * 100.0 if curr_cpu_val > 0 else 0.0
+    memory_reduction_pct = ((curr_mem_val - final_mem_val) / curr_mem_val) * 100.0 if curr_mem_val > 0 else 0.0
 
     # 6. 텔레그램 마크다운 텍스트 포맷팅 생성
     telegram_message = ReportFormatter.generate_telegram_markdown(
