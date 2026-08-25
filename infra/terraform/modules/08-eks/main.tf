@@ -15,7 +15,38 @@ module "eks" {
   enable_irsa                              = true
 
   cluster_addons = {
-    coredns            = { resolve_conflicts_on_create = "OVERWRITE" }
+    coredns = {
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      configuration_values = jsonencode({
+        replicaCount = 3
+        podAnnotations = {
+          "karpenter.sh/do-not-disrupt" = "true"
+        }
+        topologySpreadConstraints = [
+          {
+            maxSkew           = 1
+            topologyKey       = "topology.kubernetes.io/zone"
+            whenUnsatisfiable = "ScheduleAnyway"
+            labelSelector = {
+              matchLabels = {
+                "k8s-app" = "kube-dns"
+              }
+            }
+          },
+          {
+            maxSkew           = 1
+            topologyKey       = "kubernetes.io/hostname"
+            whenUnsatisfiable = "DoNotSchedule"
+            labelSelector = {
+              matchLabels = {
+                "k8s-app" = "kube-dns"
+              }
+            }
+          }
+        ]
+      })
+    }
     kube-proxy         = { resolve_conflicts_on_create = "OVERWRITE" }
     vpc-cni            = { resolve_conflicts_on_create = "OVERWRITE" }
     aws-ebs-csi-driver = { resolve_conflicts_on_create = "OVERWRITE" }

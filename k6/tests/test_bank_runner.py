@@ -30,6 +30,8 @@ def test_runner_has_expected_safe_default_durations():
     assert pre["cycles"] == "3"
     assert pre["expected_duration_seconds"] == "10800"
     assert config("post") == {**pre, "phase": "post"}
+    assert pre["scale_in_guard"] == "1"
+    assert pre["warm_replicas"] == "6"
 
 
 def test_runner_rejects_unknown_phase():
@@ -56,3 +58,21 @@ def test_makefile_exposes_all_bank_commands():
         "bank-compare:",
     ):
         assert target in source
+
+
+def test_runner_guards_scale_in_and_restores_original_state():
+    source = RUNNER.read_text()
+    assert "autoscaling.keda.sh/paused-scale-in=true" in source
+    assert "autoscaling.keda.sh/paused-scale-in-" in source
+    assert '"autoscaling.keda.sh/paused-scale-in=$previous"' in source
+    assert "trap cleanup_runtime EXIT" in source
+    assert "enable_scale_in_guard" in source
+    assert "restore_scale_in_guard" in source
+
+
+def test_runner_counts_the_actual_frontend_rollout_pods():
+    source = RUNNER.read_text()
+    assert "get pods -l app=frontend" in source
+    assert "wait --for=condition=Ready pod --all" not in source
+    assert "-l application=bank-of-anthos" in source
+    assert "deployment/transactionhistory" in source

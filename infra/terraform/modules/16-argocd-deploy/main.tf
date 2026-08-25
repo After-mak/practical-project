@@ -147,8 +147,9 @@ spec:
   ignoreDifferences:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      jqPathExpressions:
-        - .spec.rules[].backendRefs[].weight
+      jsonPointers:
+        - /spec/rules/0/backendRefs/0/weight
+        - /spec/rules/0/backendRefs/1/weight
     - group: argoproj.io
       kind: Rollout
       name: mak-app-rollout

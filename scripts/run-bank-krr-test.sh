@@ -31,9 +31,22 @@ SCENARIO_NAME="${SCENARIO_NAME:-boa-long-cycle-v1}"
 SCENARIO_VERSION="${SCENARIO_VERSION:-v1}"
 KEEP_JOB="${KEEP_JOB:-0}"
 COPY_RAW="${COPY_RAW:-0}"
+BANK_SCALE_IN_GUARD="${BANK_SCALE_IN_GUARD:-1}"
+BANK_TEST_WARM_REPLICAS="${BANK_TEST_WARM_REPLICAS:-6}"
+BANK_WARMUP_TIMEOUT_SECONDS="${BANK_WARMUP_TIMEOUT_SECONDS:-600}"
 
 LOG_PID=""
 PORT_FORWARD_PID=""
+SCALE_IN_GUARD_ACTIVE=0
+SCALE_IN_GUARD_STATE_FILE=""
+SCALE_IN_GUARD_OBJECTS=(
+  "frontend/frontend-chronos-scaler"
+  "backend/balancereader-scaler"
+  "backend/contacts-scaler"
+  "backend/ledgerwriter-scaler"
+  "backend/transactionhistory-scaler"
+  "backend/userservice-scaler"
+)
 
 usage() {
   cat <<'EOF'
@@ -68,6 +81,8 @@ Makefile 단축 명령:
   PROMETHEUS_URL         외부 URL 사용 시 PROMETHEUS_PORT_FORWARD=0도 설정
   COPY_RAW=1             큰 k6 raw JSON도 PVC에서 복사
   KEEP_JOB=1             결과 수집 후 Job/ConfigMap 유지
+  BANK_SCALE_IN_GUARD=1  테스트 중 KEDA scale-in 차단(기본값: 1)
+  BANK_TEST_WARM_REPLICAS 테스트 시작 전 워크로드 준비 개수(기본값: 6)
 
 KRR 권장값 적용은 이 스크립트가 수행하지 않는다. PRE 완료 후 별도로 적용하고
 Rollout 안정화를 확인한 다음 같은 DB_STATE_ID와 부하 설정으로 POST를 실행한다.
@@ -93,7 +108,33 @@ cleanup_processes() {
     wait "$PORT_FORWARD_PID" 2>/dev/null || true
   fi
 }
-trap cleanup_processes EXIT
+
+restore_scale_in_guard() {
+  [[ "$SCALE_IN_GUARD_ACTIVE" == "1" ]] || return 0
+  [[ -f "$SCALE_IN_GUARD_STATE_FILE" ]] || return 0
+
+  note "KEDA scale-in 보호를 원래 상태로 복원합니다"
+  while IFS=$'\t' read -r namespace name previous; do
+    [[ -n "$namespace" && -n "$name" ]] || continue
+    [[ "$namespace" == "namespace" ]] && continue
+    if [[ "$previous" == "<unset>" ]]; then
+      kubectl -n "$namespace" annotate scaledobject "$name" \
+        autoscaling.keda.sh/paused-scale-in- >/dev/null 2>&1 || \
+        note "경고: $namespace/$name scale-in 보호 해제 실패"
+    else
+      kubectl -n "$namespace" annotate scaledobject "$name" --overwrite \
+        "autoscaling.keda.sh/paused-scale-in=$previous" >/dev/null 2>&1 || \
+        note "경고: $namespace/$name scale-in 보호 복원 실패"
+    fi
+  done <"$SCALE_IN_GUARD_STATE_FILE"
+  SCALE_IN_GUARD_ACTIVE=0
+}
+
+cleanup_runtime() {
+  cleanup_processes
+  restore_scale_in_guard
+}
+trap cleanup_runtime EXIT
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "필수 명령을 찾을 수 없습니다: $1"
@@ -147,6 +188,8 @@ time_scale=$TIME_SCALE
 cycles=$CYCLES
 expected_duration_seconds=$EXPECTED_DURATION_SECONDS
 krr_history_duration=$KRR_HISTORY_DURATION
+scale_in_guard=$BANK_SCALE_IN_GUARD
+warm_replicas=$BANK_TEST_WARM_REPLICAS
 namespace=$NAMESPACE
 chart_dir=$CHART_DIR
 results_root=$RESULTS_ROOT
@@ -161,6 +204,12 @@ preflight() {
   require_command curl
   [[ -f "$CHART_DIR/Chart.yaml" ]] || die "Helm chart를 찾을 수 없습니다: $CHART_DIR"
   [[ -f "$SCENARIO_FILE" ]] || die "k6 시나리오를 찾을 수 없습니다: $SCENARIO_FILE"
+  [[ "$BANK_SCALE_IN_GUARD" == "0" || "$BANK_SCALE_IN_GUARD" == "1" ]] \
+    || die "BANK_SCALE_IN_GUARD는 0 또는 1이어야 합니다"
+  [[ "$BANK_TEST_WARM_REPLICAS" =~ ^[1-9][0-9]*$ ]] \
+    || die "BANK_TEST_WARM_REPLICAS는 1 이상의 정수여야 합니다"
+  [[ "$BANK_WARMUP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] \
+    || die "BANK_WARMUP_TIMEOUT_SECONDS는 1 이상의 정수여야 합니다"
 
   kubectl cluster-info >/dev/null
   kubectl get namespace "$NAMESPACE" >/dev/null
@@ -173,8 +222,14 @@ preflight() {
   kubectl -n "$PROMETHEUS_NAMESPACE" get endpoints "${PROMETHEUS_SERVICE#service/}" \
     -o jsonpath='{.subsets[0].addresses[0].ip}' | grep -q . \
     || die "Prometheus/Thanos Query Service에 Ready endpoint가 없습니다"
-  kubectl -n "$NAMESPACE" wait --for=condition=Ready pod --all --timeout=60s >/dev/null
-  kubectl -n backend wait --for=condition=Ready pod --all --timeout=60s >/dev/null
+  kubectl -n "$NAMESPACE" wait --for=condition=Ready pod \
+    -l application=bank-of-anthos --timeout=60s >/dev/null
+  kubectl -n backend wait --for=condition=Available --timeout=60s \
+    deployment/userservice \
+    deployment/contacts \
+    deployment/balancereader \
+    deployment/ledgerwriter \
+    deployment/transactionhistory >/dev/null
 
   if kubectl -n "$NAMESPACE" get rollout mak-app-rollout >/dev/null 2>&1; then
     local paused rollout_phase
@@ -196,6 +251,100 @@ preflight() {
     [[ -z "$(git -C "$DEPLOY_REPO" status --porcelain)" ]] \
       || die "배포 저장소에 커밋되지 않은 변경이 있습니다: $DEPLOY_REPO"
   fi
+}
+
+enable_scale_in_guard() {
+  [[ "$BANK_SCALE_IN_GUARD" == "1" ]] || return 0
+
+  SCALE_IN_GUARD_STATE_FILE="$RUN_DIR/scale-in-guard-state.tsv"
+  printf 'namespace\tscaledobject\tprevious_value\n' >"$SCALE_IN_GUARD_STATE_FILE"
+  SCALE_IN_GUARD_ACTIVE=1
+
+  local object namespace name previous max_replicas
+  for object in "${SCALE_IN_GUARD_OBJECTS[@]}"; do
+    namespace="${object%%/*}"
+    name="${object#*/}"
+    kubectl -n "$namespace" get scaledobject "$name" >/dev/null \
+      || die "ScaledObject를 찾을 수 없습니다: $object"
+    max_replicas="$(kubectl -n "$namespace" get scaledobject "$name" -o jsonpath='{.spec.maxReplicaCount}')"
+    [[ "$BANK_TEST_WARM_REPLICAS" -le "$max_replicas" ]] \
+      || die "BANK_TEST_WARM_REPLICAS($BANK_TEST_WARM_REPLICAS)가 $object maxReplicaCount($max_replicas)를 초과합니다"
+    previous="$(
+      kubectl -n "$namespace" get scaledobject "$name" \
+        -o 'jsonpath={.metadata.annotations.autoscaling\.keda\.sh/paused-scale-in}'
+    )"
+    [[ -n "$previous" ]] || previous="<unset>"
+    printf '%s\t%s\t%s\n' "$namespace" "$name" "$previous" \
+      >>"$SCALE_IN_GUARD_STATE_FILE"
+    kubectl -n "$namespace" annotate scaledobject "$name" --overwrite \
+      autoscaling.keda.sh/paused-scale-in=true >/dev/null
+  done
+
+  local deadline=$(( $(date +%s) + 120 )) all_disabled select_policy
+  while true; do
+    all_disabled=1
+    for object in "${SCALE_IN_GUARD_OBJECTS[@]}"; do
+      namespace="${object%%/*}"
+      name="${object#*/}"
+      select_policy="$(
+        kubectl -n "$namespace" get hpa "keda-hpa-$name" \
+          -o jsonpath='{.spec.behavior.scaleDown.selectPolicy}' 2>/dev/null || true
+      )"
+      [[ "$select_policy" == "Disabled" ]] || all_disabled=0
+    done
+    [[ "$all_disabled" == "1" ]] && break
+    [[ "$(date +%s)" -lt "$deadline" ]] \
+      || die "KEDA HPA가 120초 내에 scale-in 보호를 반영하지 못했습니다"
+    sleep 2
+  done
+
+  note "KEDA scale-in 보호 적용 완료; 각 워크로드를 ${BANK_TEST_WARM_REPLICAS}개로 준비합니다"
+  local target_kind target_name resource
+  for object in "${SCALE_IN_GUARD_OBJECTS[@]}"; do
+    namespace="${object%%/*}"
+    name="${object#*/}"
+    target_kind="$(
+      kubectl -n "$namespace" get scaledobject "$name" \
+        -o jsonpath='{.spec.scaleTargetRef.kind}'
+    )"
+    target_kind="${target_kind:-Deployment}"
+    target_name="$(
+      kubectl -n "$namespace" get scaledobject "$name" \
+        -o jsonpath='{.spec.scaleTargetRef.name}'
+    )"
+    resource="$(printf '%s' "$target_kind" | tr '[:upper:]' '[:lower:]')"
+    kubectl -n "$namespace" scale "$resource/$target_name" \
+      --replicas="$BANK_TEST_WARM_REPLICAS" >/dev/null
+  done
+
+  deadline=$(( $(date +%s) + BANK_WARMUP_TIMEOUT_SECONDS ))
+  local all_ready desired ready
+  while true; do
+    all_ready=1
+    for object in "${SCALE_IN_GUARD_OBJECTS[@]}"; do
+      namespace="${object%%/*}"
+      name="${object#*/}"
+      target_kind="$(
+        kubectl -n "$namespace" get scaledobject "$name" \
+          -o jsonpath='{.spec.scaleTargetRef.kind}'
+      )"
+      target_kind="${target_kind:-Deployment}"
+      target_name="$(
+        kubectl -n "$namespace" get scaledobject "$name" \
+          -o jsonpath='{.spec.scaleTargetRef.name}'
+      )"
+      resource="$(printf '%s' "$target_kind" | tr '[:upper:]' '[:lower:]')"
+      desired="$(kubectl -n "$namespace" get "$resource/$target_name" -o jsonpath='{.spec.replicas}')"
+      ready="$(kubectl -n "$namespace" get "$resource/$target_name" -o jsonpath='{.status.readyReplicas}')"
+      [[ "${desired:-0}" -ge "$BANK_TEST_WARM_REPLICAS" && \
+         "${ready:-0}" -ge "$BANK_TEST_WARM_REPLICAS" ]] || all_ready=0
+    done
+    [[ "$all_ready" == "1" ]] && break
+    [[ "$(date +%s)" -lt "$deadline" ]] \
+      || die "워크로드 준비 용량 확보가 ${BANK_WARMUP_TIMEOUT_SECONDS}초를 초과했습니다"
+    sleep 5
+  done
+  note "워크로드 준비 완료"
 }
 
 render_manifest() {
@@ -243,7 +392,7 @@ wait_for_job() {
     succeeded="$(kubectl -n "$NAMESPACE" get job "$job_name" -o jsonpath='{.status.succeeded}')"
     failed="$(kubectl -n "$NAMESPACE" get job "$job_name" -o jsonpath='{.status.failed}')"
     frontend_pods="$(
-      kubectl -n "$NAMESPACE" get pods -l app=mak-app --no-headers 2>/dev/null |
+      kubectl -n "$NAMESPACE" get pods -l app=frontend --no-headers 2>/dev/null |
         wc -l | tr -d ' '
     )"
     printf '%s\t%s\t%s\t%s\t%s\n' \
@@ -328,6 +477,8 @@ generate_equivalence() {
       LOW_RPS="$LOW_RPS" NORMAL_RPS="$NORMAL_RPS" PEAK_RPS="$PEAK_RPS" \
       SPIKE_RPS="$SPIKE_RPS" RECOVERY_RPS="$RECOVERY_RPS" \
       PAYMENT_PERCENT="$PAYMENT_PERCENT" LOADGEN_IMAGE="$LOADGEN_IMAGE" \
+      BANK_SCALE_IN_GUARD="$BANK_SCALE_IN_GUARD" \
+      BANK_TEST_WARM_REPLICAS="$BANK_TEST_WARM_REPLICAS" \
       python3 - <<'PY'
 import hashlib
 import json
@@ -385,6 +536,8 @@ metadata = {
         "spike_rps": os.environ["SPIKE_RPS"],
         "recovery_rps": os.environ["RECOVERY_RPS"],
         "payment_percent": os.environ["PAYMENT_PERCENT"],
+        "scale_in_guard": os.environ["BANK_SCALE_IN_GUARD"],
+        "warm_replicas": os.environ["BANK_TEST_WARM_REPLICAS"],
     },
     "db_state_id": os.environ["DB_STATE_ID"],
     "autoscaling": sorted(
@@ -551,6 +704,7 @@ run_phase() {
   mkdir -p "$RUN_DIR"
   print_config | tee "$RUN_DIR/config.txt"
   render_manifest "$RUN_DIR/loadgen.yaml"
+  enable_scale_in_guard
 
   note "Load Generator 배포: run_id=$RUN_ID"
   kubectl apply -f "$RUN_DIR/loadgen.yaml" >/dev/null
@@ -586,6 +740,7 @@ run_phase() {
 
   local verdict_rc=0
   evaluate_run "$RUN_DIR" || verdict_rc=$?
+  restore_scale_in_guard
   if [[ "$KEEP_JOB" != "1" ]]; then
     kubectl -n "$NAMESPACE" delete job "$job_name" --wait=true >/dev/null
     kubectl -n "$NAMESPACE" delete configmap \
