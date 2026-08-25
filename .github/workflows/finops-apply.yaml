@@ -17,6 +17,9 @@ name: FinOps Apply Resource Recommendation
 #   - Workflow permissions를 "Read and write permissions"로 설정 (git push용, 필수)
 #   - TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (반영 완료/실패를 텔레그램으로 재보고하기 위함, 선택.
 #     없으면 git push까지는 정상 동작하고 알림만 조용히 생략됨)
+#   - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (finops-ecr.yaml과 동일한 Secret 재사용 - git push
+#     이후 ArgoCD Application이 실제로 Synced/Healthy가 됐는지 클러스터에서 확인하기 위함. 없어도
+#     git push까지는 정상 동작하고, ArgoCD 확인만 실패로 표시되어 "확인 필요" 알림이 감)
 on:
   workflow_dispatch:
     inputs:
@@ -36,6 +39,14 @@ on:
       memory:
         description: '적용할 Memory request (예: 512Mi)'
         required: true
+
+# 텔레그램 승인 버튼을 여러 워크로드에 대해 짧은 간격으로 여러 번 누르면 이 워크플로우가
+# 동시에 여러 번 실행되는데, 전부 같은 저장소의 같은 브랜치에 git push를 하므로 나중에
+# push하는 쪽이 "rejected (fetch first)"로 실패할 수 있습니다(실제로 재현 확인함). 동시
+# 실행 자체를 막아 순차 처리되게 합니다(취소는 하지 않고 큐처럼 대기).
+concurrency:
+  group: finops-apply-gitops
+  cancel-in-progress: false
 
 jobs:
   apply-resources:
@@ -87,6 +98,17 @@ jobs:
 
           echo "values_file=${VALUES_FILE}" >> "$GITHUB_OUTPUT"
           echo "resources_path=${RESOURCES_PATH}" >> "$GITHUB_OUTPUT"
+
+          # namespace -> 그 namespace를 배포하는 ArgoCD Application 이름
+          # (infra/terraform/modules/16-argocd-deploy/main.tf의 kubectl_manifest.mak_backend
+          # /mak_frontend/sample_fastapi 리소스의 metadata.name과 일치해야 합니다)
+          case "$NAMESPACE" in
+            backend) ARGOCD_APP="mak-backend" ;;
+            frontend) ARGOCD_APP="mak-frontend" ;;
+            sample-fastapi) ARGOCD_APP="sample-fastapi" ;;
+            *) ARGOCD_APP="" ;;
+          esac
+          echo "argocd_app=${ARGOCD_APP}" >> "$GITHUB_OUTPUT"
 
       - name: Update resources.requests in chart values.yaml
         env:
@@ -140,14 +162,84 @@ jobs:
           fi
 
           git commit -m "chore(finops): ${NAMESPACE}/${DEPLOYMENT_NAME} 리소스 요청값을 cpu=${CPU}, memory=${MEMORY}로 반영 (KRR 승인)"
-          git push origin HEAD
+
+          # concurrency group으로 이 워크플로우끼리는 겹치지 않지만, finops-ecr.yaml /
+          # krr-demo-seed-ecr.yaml처럼 같은 저장소·브랜치에 push하는 다른 워크플로우와는
+          # 여전히 겹칠 수 있습니다. push가 거부되면 커밋 자체를 버리지 않고(디폴트 전략인
+          # rebase로) 원격의 새 커밋 위에 올린 뒤 재시도합니다.
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD; then
+              exit 0
+            fi
+            echo "git push 실패($i/5), 원격 변경사항을 rebase 후 재시도합니다."
+            git fetch origin main
+            git rebase origin/main
+            sleep $((i * 3))
+          done
+
+          echo "::error::5회 재시도 후에도 git push에 실패했습니다."
+          exit 1
+
+      # 여기까지는 git push 성공만 확인했을 뿐, ArgoCD가 실제로 그 커밋을 sync해서 클러스터에
+      # 반영했는지는 전혀 모릅니다(예: limits 캡 위반으로 selfHeal이 계속 실패하거나, 이미지 pull
+      # 에러 등). namespace에 대응하는 ArgoCD Application의 sync/health 상태가 실제로 정상이 될
+      # 때까지 짧게 폴링해서 확인합니다. 여기서 시간이 걸리거나 실패해도 git 반영 자체는 이미
+      # 끝난 일이므로 워크플로우 전체를 실패시키지는 않고, 아래 텔레그램 알림 문구만 다르게 보냅니다.
+      # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY Secret이 아직 등록 안 되어 있어도 이 확인
+      # 단계만 건너뛰고(continue-on-error) git push 성공은 그대로 인정되도록 합니다 - 여기서
+      # 실패해서 워크플로우 전체가 "실패"로 잘못 보고되면 안 됩니다.
+      - name: Configure AWS credentials (ArgoCD 확인용)
+        if: success()
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Setup kubectl
+        if: success()
+        continue-on-error: true
+        uses: azure/setup-kubectl@v4
+
+      - name: ArgoCD Sync/Health 확인
+        id: argocd_check
+        if: success()
+        env:
+          ARGOCD_APP: ${{ steps.map.outputs.argocd_app }}
+          NAMESPACE: ${{ github.event.inputs.namespace }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "$ARGOCD_APP" ]; then
+            echo "synced=unknown" >> "$GITHUB_OUTPUT"
+            echo "'${NAMESPACE}'에 대응하는 ArgoCD Application을 몰라서 sync 확인을 건너뜁니다."
+            exit 0
+          fi
+
+          aws eks update-kubeconfig --name project03-eks --region ap-northeast-2
+
+          for i in $(seq 1 24); do
+            STATUS=$(kubectl get application "$ARGOCD_APP" -n argocd -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)
+            if [ "$STATUS" = "Synced Healthy" ]; then
+              echo "synced=true" >> "$GITHUB_OUTPUT"
+              echo "[argocd-check] ${ARGOCD_APP}: Synced/Healthy 확인 완료"
+              exit 0
+            fi
+            echo "[argocd-check] ${ARGOCD_APP} 아직 준비 안 됨 (${STATUS:-조회 실패}), 10초 후 재시도 ($i/24)"
+            sleep 10
+          done
+
+          echo "synced=false" >> "$GITHUB_OUTPUT"
+          echo "[argocd-check] 4분 안에 ${ARGOCD_APP}가 Synced/Healthy가 되지 않았습니다."
+        continue-on-error: true
 
       # alarm의 trigger_github_workflow()는 "실행 요청이 접수됐다"까지만 확인하고, 이 워크플로우가
       # 실제로 끝까지 성공/실패했는지는 모릅니다. 그래서 실제 반영 결과를 워크플로우 스스로 텔레그램에
       # 다시 보고합니다. TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID Secret이 아직 등록 안 되어 있으면
       # (admin 등록 대기 중) 워크플로우를 실패시키지 않고 알림만 조용히 건너뜁니다.
-      - name: Telegram 반영 완료 알림
-        if: success()
+      - name: Telegram 반영 완료 알림 (ArgoCD 반영까지 확인됨)
+        if: success() && steps.argocd_check.outputs.synced == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -162,7 +254,34 @@ jobs:
             exit 0
           fi
 
-          TEXT=$(printf '✅ [FinOps 반영 완료]\n%s/%s\nCPU: %s / Memory: %s\nGitOps 저장소에 실제로 커밋/푸시되었습니다.' "$NAMESPACE" "$DEPLOYMENT_NAME" "$CPU" "$MEMORY")
+          TEXT=$(printf '✅ [FinOps 반영 완료]\n%s/%s\nCPU: %s / Memory: %s\nGitOps 저장소에 커밋/푸시됐고, ArgoCD가 실제로 Synced/Healthy 상태가 된 것까지 확인했습니다.' "$NAMESPACE" "$DEPLOYMENT_NAME" "$CPU" "$MEMORY")
+
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            --data-urlencode text="${TEXT}"
+
+      # git push는 성공했지만 ArgoCD가 제한 시간(4분) 안에 Synced/Healthy가 되는 걸 확인하지
+      # 못한 경우입니다. GitOps 반영 자체는 끝났으므로 워크플로우를 실패로 표시하진 않지만,
+      # "완전히 끝났다"고 오해하지 않도록 확인이 필요하다는 걸 명확히 알립니다.
+      - name: Telegram 반영 완료 알림 (ArgoCD 반영 확인 안 됨)
+        if: success() && steps.argocd_check.outputs.synced != 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NAMESPACE: ${{ github.event.inputs.namespace }}
+          DEPLOYMENT_NAME: ${{ github.event.inputs.deployment_name }}
+          CPU: ${{ github.event.inputs.cpu }}
+          MEMORY: ${{ github.event.inputs.memory }}
+          ARGOCD_APP: ${{ steps.map.outputs.argocd_app }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID Secret이 없어 알림을 건너뜁니다."
+            exit 0
+          fi
+
+          TEXT=$(printf '⚠️ [FinOps 반영 - ArgoCD 확인 필요]\n%s/%s\nCPU: %s / Memory: %s\nGitOps 저장소엔 커밋/푸시됐지만, ArgoCD Application(%s)이 4분 안에 Synced/Healthy가 되는 걸 확인하지 못했습니다. 직접 확인해주세요:\n%s' "$NAMESPACE" "$DEPLOYMENT_NAME" "$CPU" "$MEMORY" "${ARGOCD_APP:-unknown}" "$RUN_URL")
 
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_CHAT_ID}" \
