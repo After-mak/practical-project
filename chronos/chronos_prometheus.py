@@ -13,7 +13,7 @@ import os
 import re
 import subprocess
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Protocol, Sequence
@@ -136,6 +136,56 @@ class ForecastSettings:
             )
         if self.fake_replicas is not None and self.fake_replicas <= 0:
             raise ValueError("CHRONOS_FAKE_REPLICAS must be greater than zero")
+
+
+def parse_targets_from_environment(
+    base_settings: ForecastSettings,
+) -> list[ForecastSettings]:
+    """CHRONOS_TARGETS(JSON 리스트) 환경변수가 있으면 여러 타겟을 반환하고,
+    없으면 base_settings 하나만 담긴 리스트를 반환해 기존 단일 타겟 동작을
+    그대로 유지합니다(하위 호환).
+
+    각 항목 형식: {"namespace": str, "deployment": str,
+                  "pod_pattern": str (선택), "container": str (선택)}
+    threshold/capacity/lookback/model 등 공통 설정은 base_settings를 그대로
+    공유합니다.
+    """
+
+    raw = os.environ.get("CHRONOS_TARGETS", "").strip()
+    if not raw:
+        return [base_settings]
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"CHRONOS_TARGETS must be valid JSON: {exc}") from exc
+    if not isinstance(items, list) or not items:
+        raise ValueError("CHRONOS_TARGETS must be a non-empty JSON list")
+
+    targets: list[ForecastSettings] = []
+    for index, item in enumerate(items):
+        if (
+            not isinstance(item, dict)
+            or "namespace" not in item
+            or "deployment" not in item
+        ):
+            raise ValueError(
+                f"CHRONOS_TARGETS[{index}] must be an object with "
+                "namespace/deployment"
+            )
+        namespace = str(item["namespace"])
+        deployment = str(item["deployment"])
+        pod_pattern = item.get("pod_pattern") or f"{re.escape(deployment)}-.*"
+        container = item.get("container", base_settings.container_name)
+        targets.append(
+            replace(
+                base_settings,
+                target_namespace=namespace,
+                target_deployment=deployment,
+                pod_pattern=pod_pattern,
+                container_name=container,
+            )
+        )
+    return targets
 
 
 @dataclass(frozen=True)
