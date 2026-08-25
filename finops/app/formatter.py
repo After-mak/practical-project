@@ -37,6 +37,13 @@ class ReportFormatter:
         else:
             cost_line = f"• ⚠️ <b>예상 월 비용 증가율: {round(abs(cost_savings_pct), 1)}% (비용 증가 예상)</b>"
 
+        def _resource_change_line(label: str, reduction_pct: float) -> str:
+            """reduction_pct는 양수=절감, 음수=증가입니다. 증가인 경우에도 0%로 뭉개지 않고
+            '증가율'로 라벨을 바꿔서 실제 방향과 크기를 그대로 보여줍니다."""
+            if reduction_pct >= 0:
+                return f"• {label} 감소율: <b>{round(reduction_pct, 1)}%</b>"
+            return f"• ⚠️ {label} 증가율: <b>{round(abs(reduction_pct), 1)}%</b> (증가 예상)"
+
         # KRR이 사용 이력 데이터 부족으로 권장값을 산출하지 못한 리소스는 현재값을 그대로 보여주는 대신
         # "데이터부족"이라고 명시해, KRR이 실제로 그 값을 추천한 것처럼 오인하지 않도록 합니다.
         krr_cpu_display = "데이터부족" if recommendations.krr_cpu_data_insufficient else recommendations.krr.cpu
@@ -60,8 +67,8 @@ class ReportFormatter:
             "<i>※ Final은 KRR 추천값에 운영 정책 및 Chronos 미래 예측을 적용해 자동 보정한 값입니다.</i>",
             "",
             "💰 <b>예상 리소스 및 비용 변화율</b>",
-            f"• CPU 감소율: <b>{round(cpu_reduction_pct, 1)}%</b>",
-            f"• Memory 감소율: <b>{round(memory_reduction_pct, 1)}%</b>",
+            _resource_change_line("CPU", cpu_reduction_pct),
+            _resource_change_line("Memory", memory_reduction_pct),
             cost_line,
             "",
             "⚠️ <b>위험도 및 정책 검증</b>",

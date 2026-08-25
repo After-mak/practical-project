@@ -61,8 +61,8 @@ class AnalysisResponse(BaseModel):
     container_name: str = Field(..., description="대상 Container")
     
     # 리소스 및 비용 절감 지표
-    cpu_reduction_pct: float = Field(..., description="최종 CPU 절감률 (%)")
-    memory_reduction_pct: float = Field(..., description="최종 메모리 절감률 (%)")
+    cpu_reduction_pct: float = Field(..., description="최종 CPU 변화율 (%). 양수는 절감(감소), 음수는 증가를 의미합니다.")
+    memory_reduction_pct: float = Field(..., description="최종 메모리 변화율 (%). 양수는 절감(감소), 음수는 증가를 의미합니다.")
     cost_savings_pct: float = Field(..., description="예상 비용 변화율 (%). 양수는 절감, 음수는 비용 증가를 의미합니다.")
     
     # 위험 평가 및 상태
