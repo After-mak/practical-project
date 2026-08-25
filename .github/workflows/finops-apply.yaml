@@ -40,12 +40,16 @@ on:
         description: '적용할 Memory request (예: 512Mi)'
         required: true
 
-# 텔레그램 승인 버튼을 여러 워크로드에 대해 짧은 간격으로 여러 번 누르면 이 워크플로우가
-# 동시에 여러 번 실행되는데, 전부 같은 저장소의 같은 브랜치에 git push를 하므로 나중에
-# push하는 쪽이 "rejected (fetch first)"로 실패할 수 있습니다(실제로 재현 확인함). 동시
-# 실행 자체를 막아 순차 처리되게 합니다(취소는 하지 않고 큐처럼 대기).
+# 워크로드별로 concurrency 그룹을 분리합니다. 처음엔 전체 공용 그룹 하나로 묶어서 git push
+# 레이스를 막았는데(#28), 이 워크플로우가 ArgoCD Sync 확인(최대 4분)까지 포함해 오래 걸리다
+# 보니, 배치 승인으로 13개를 짧은 간격에 연달아 트리거하면 GitHub Actions concurrency 그룹이
+# "실행 중 1개 + 대기 1개"만 유지하는 특성상 뒤에 밀린 대기 항목들이 계속 취소되어 10개가
+# 조용히 유실되는 문제가 실제로 재현됐습니다. 워크로드별로 그룹을 나누면 서로 다른 워크로드는
+# 병렬로 처리되어 이 문제가 없고, 같은 워크로드가 중복 트리거될 때만(원래 막으려던 경우) 순서대로
+# 처리됩니다. 서로 다른 워크로드끼리 git push가 우연히 겹치는 건 아래 "Commit and Push"의
+# rebase 재시도 로직이 처리합니다.
 concurrency:
-  group: finops-apply-gitops
+  group: finops-apply-gitops-${{ github.event.inputs.namespace }}-${{ github.event.inputs.deployment_name }}-${{ github.event.inputs.container_name }}
   cancel-in-progress: false
 
 jobs:
