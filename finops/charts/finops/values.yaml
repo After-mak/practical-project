@@ -50,7 +50,12 @@ cronjob:
   schedule: "0 3 * * *"  # 매일 새벽 3시 (Cron 표현식: 새벽 3시 0분)
   # KRR이 targetNamespaces를 스캔해 발견하는 모든 워크로드를 /analyze/namespace로 한 번에 전수 분석합니다.
   targetNamespaces: ["sample-fastapi", "frontend", "backend"]
-  historyDuration: "336h"
+  # 336h(14일) 기본값은 그 기간 동안의 실제 재배포/Karpenter 축출로 생긴 진짜 CPU
+  # 사용 이력까지 그대로 반영해버려서, 데모용으로 세팅한 "current" 여유값을 예측 불가하게
+  # 뛰어넘는 KRR 증가 추천이 나올 수 있습니다(재현 확인함). 데모 환경에서는 최근 몇 시간의
+  # 안정된 더미데이터 이력만 보도록 짧게 잡습니다 (KRR points_required=100 기준 6h는
+  # 30초 간격 더미 샘플 720개로 충분히 만족).
+  historyDuration: "6h"
 
 resources:
   limits:
