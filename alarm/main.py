@@ -374,7 +374,11 @@ async def handle_deploy_batch_report(file: UploadFile = File(...), caption: str 
     ok = send_telegram_document(file.filename, content, caption)
     return {"status": "ok" if ok else "error"}
 
-# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드 (워크로드마다 버튼 한 줄씩)
+# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드.
+# 워크로드마다 버튼을 따로 두면(이전 방식) 메시지를 반복 편집할 때마다 reply_markup을 다시 안
+# 실어보내는 문제로 버튼이 통째로 사라지는 게 재현됐고, 그렇다고 승인/거절할 때마다 새 메시지를
+# 보내면 애초에 메시지를 하나로 합치려던 목적과 반대로 메시지가 늘어납니다. 그래서 버튼은
+# "전체 승인"/"전체 거절" 한 쌍만 두고, 눌렀을 때 PASS인 워크로드 전체를 한 번에 반영합니다.
 @app.post("/webhook/deploy-batch-approval")
 async def handle_deploy_batch_approval(payload: dict):
     workloads = payload.get("workloads", [])
@@ -382,7 +386,6 @@ async def handle_deploy_batch_approval(payload: dict):
         return {"status": "ignored", "reason": "no workloads in payload"}
 
     lines = []
-    keyboard_rows = []
     registry_entries = []
     for w in workloads:
         namespace = w.get("namespace", "")
@@ -393,15 +396,17 @@ async def handle_deploy_batch_approval(payload: dict):
         lines.append(line)
 
         if overall_status == "PASS" and namespace and deployment_name and container_name:
-            idx = len(registry_entries)
             registry_entries.append((namespace, deployment_name, container_name))
-            keyboard_rows.append([
-                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{idx}"},
-                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{idx}"}
-            ])
 
-    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드)\n\n" + "\n\n".join(lines)
-    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드, 승인 대상 {len(registry_entries)}개)\n\n" + "\n\n".join(lines)
+    reply_markup = None
+    if registry_entries:
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": f"✅ 전체 승인 ({len(registry_entries)}개)", "callback_data": "infra_approve_all"},
+                {"text": "❌ 전체 거절", "callback_data": "infra_reject_all"},
+            ]]
+        }
     message_id = send_telegram_message(text, reply_markup=reply_markup)
     if message_id and registry_entries:
         _batch_approval_registry[message_id] = registry_entries
@@ -492,6 +497,66 @@ async def telegram_callback_webhook(request: Request):
                 update_telegram_message(chat_id, message_id, f"✅ <b>[지정 롤백 요청 완료]</b> <code>{target_tag}</code> 버전 롤백 파이프라인이 시작되었습니다!")
             else:
                 update_telegram_message(chat_id, message_id, f"❌ <b>[지정 롤백 요청 실패]</b> <code>{target_tag}</code> 롤백 파이프라인을 시작하지 못했습니다.")
+
+        # 4-0) 배치 승인 메시지 전체 거절 (버튼 한 쌍으로 통합된 방식)
+        elif callback_data == "infra_reject_all":
+            entries = _batch_approval_registry.pop(message_id, [])
+            count = len(entries)
+            update_telegram_message(
+                chat_id, message_id,
+                append_progress_status(
+                    original_text,
+                    f"❌ <b>[전체 거부 완료]</b> {count}개 워크로드의 최적화 권장안을 전부 거부했습니다. 현재 설정을 유지합니다."
+                )
+            )
+
+        # 3-0) 배치 승인 메시지 전체 승인 (버튼 한 쌍으로 통합된 방식) - 순서대로 각 워크로드에
+        # 최신 권장값을 재조회하여 finops-apply.yaml을 반영합니다.
+        elif callback_data == "infra_approve_all":
+            entries = _batch_approval_registry.pop(message_id, [])
+            if not entries:
+                update_telegram_message(
+                    chat_id, message_id,
+                    append_progress_status(
+                        original_text,
+                        "⚠️ <b>[적용 실패]</b> 이 메시지의 워크로드 목록을 찾을 수 없습니다 (서비스 재시작 등으로 유실됐을 수 있습니다). FinOps에서 분석을 다시 실행한 뒤 승인해주세요."
+                    )
+                )
+            else:
+                update_telegram_message(
+                    chat_id, message_id,
+                    append_progress_status(original_text, f"⏳ <b>[전체 적용 시작]</b> {len(entries)}개 워크로드를 순서대로 반영합니다...")
+                )
+                result_lines = []
+                for target_namespace, target_deployment, target_container in entries:
+                    label = f"{target_namespace}/{target_deployment}/{target_container}"
+                    recommendation = fetch_finops_recommendation(target_namespace, target_deployment, target_container)
+                    if recommendation is None:
+                        result_lines.append(f"⚠️ <code>{label}</code>: 최근 분석 결과를 찾을 수 없어 건너뜀")
+                        continue
+                    final_cpu = recommendation["final_cpu"]
+                    final_memory = recommendation["final_memory"]
+                    started = trigger_github_workflow(
+                        "finops-apply.yaml",
+                        {
+                            "namespace": target_namespace,
+                            "deployment_name": target_deployment,
+                            "container_name": target_container,
+                            "cpu": final_cpu,
+                            "memory": final_memory,
+                        },
+                        ref=GITOPS_TARGET_BRANCH
+                    )
+                    icon = "✅" if started else "❌"
+                    result_lines.append(f"{icon} <code>{label}</code>: CPU {final_cpu} / Memory {final_memory}")
+
+                update_telegram_message(
+                    chat_id, message_id,
+                    append_progress_status(
+                        original_text,
+                        f"✅ <b>[전체 적용 요청 완료]</b> {len(entries)}개 워크로드 반영 파이프라인이 시작되었습니다!\n\n" + "\n".join(result_lines)
+                    )
+                )
 
         # 4) FinOps 권장안 거부
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
