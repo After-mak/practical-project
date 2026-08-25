@@ -179,6 +179,14 @@ class KrrClient:
             if not name or not container:
                 logger.warning("[KrrClient] skipping KRR row without workload/container: %s", obj)
                 continue
+            kind = obj.get("kind")
+            if kind in ("Job", "GroupedJob"):
+                # k6 부하테스트 Job(예: bank-loadgen-*)처럼 일회성으로 실행되고 끝나는 워크로드는
+                # 리사이징 대상이 아니라 다른 서비스에 부하를 주는 도구입니다. 그대로 승인
+                # 목록에 올리면 자동 생성된 긴 실행 이름이 텔레그램 콜백 데이터 길이 제한을
+                # 넘겨 배치 승인 메시지 전체를 실패시키는 문제도 있어(재현 확인함) 아예 제외합니다.
+                logger.info("[KrrClient] skipping non-rightsizing workload kind=%s: %s/%s", kind, namespace, name)
+                continue
             identifier = f"{namespace}/{name}/{container}"
             recommended = scan.get("recommended", {}) or {}
             current_alloc = obj.get("allocations", {}) or {}
