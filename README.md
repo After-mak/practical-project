@@ -33,57 +33,45 @@
 
 ```text
 practical-project/
-├── ☁️ infra/                      # 인프라스트럭처 정의 (IaC & Scaling)
-│   ├── KEDA/                       # KEDA 이벤트 기반 Autoscaling 설정
-│   └── terraform/                  # AWS Terraform 구성
-│       ├── envs/                   # 환경별 구성 (dev / prod)
-│       ├── init/                   # S3, DynamoDB 등 Terraform 백엔드 및 초기화
-│       └── modules/                # 재사용 가능한 인프라 모듈
-│           ├── 01-vpc ~ 06-nat     # 네트워크 및 보안 모듈
-│           ├── 08-eks ~ 10-rds     # 컴퓨팅 및 데이터베이스 (EKS, ECR, RDS)
-│           ├── 11-karpenter_setup  # 노드 오토스케일러 (Karpenter)
-│           ├── 12-alb ~ 14-gateway # 로드밸런서 및 Route53
-│           └── 15-argocd ~ 17-...  # CI/CD 및 ElastiCache
+├── ☁️ infra/terraform/envs/dev/                    # 클라우드 인프라 (AWS & K8s)
+│   ├── infra/
+│   │   ├── 05-cnpg-backup.tf                       # CloudNativePG S3 백업 및 복구 파이프라인
+│   │   ├── 06-thanos-irsa.tf                       # Thanos S3 장기 메트릭 보관용 IRSA
+│   │   └── 11-gateway-api-iam.tf                   # AWS Load Balancer Controller IRSA (Gateway API/ALB 제어 권한)
+│   └── k8s/
+│       ├── 11-gateway-api-helm.tf                  # AWS Load Balancer Controller Helm 및 Gateway API 라우팅 배포
+│       ├── 13-krr-telegram-secret.tf               # FinOps ChatOps (Telegram) 승인 연동 Secret
+│       ├── 14-cnpg.tf                              # CloudNative-PG Operator 클러스터 매니페스트
+│       └── 15-bank-jwt-secret.tf                   # MSA 무중단 JWT 키 로테이션 체계
 │
-├── 🚀 apps/ & app-test/           # Bank Of Anthos 마이크로서비스
-│   ├── apps/
-│   │   └── sample-fastapi/         # FastAPI 메인 서비스 (API, Worker, Redis Queue)
-│   └── app-test/                   # Bank of Anthos 기반 테스트 마이크로서비스
-│       ├── accounts/               # 계정 서비스 & Accounts DB 
-│       ├── contacts/               # Contacts Python 서비스
-│       ├── userservice/            # UserService Python 서비스
-│       ├── frontend/               # Web Frontend (Flask, Static Assets, Templates)
-│       ├── ledger/                 # Java/Spring 기반 원장 서비스
-│       │   ├── balancereader/      # 잔액 조회 서비스
-│       │   ├── ledgerwriter/       # 원장 기록 서비스
-│       │   └── transactionhistory/ # 거래 내역 서비스
-│       └── components/             # Kustomize 공통 컴포넌트 (Cloud SQL, Ingress 등)
+├── 💰 finops/                                      # 폐루프(Closed-Loop) FinOps & Rightsizing
+│   ├── app/                                        # FastAPI 기반 리소스 분석 및 Telegram ChatOps 엔진
+│   ├── bank-workload-map.json                      # 마이크로서비스별 리소스 매핑 메타데이터
+│   ├── charts/finops/                              # FinOps 자동화 CronJob & API 배포 Helm Chart
+│   └── scripts/                                    # 장기 메트릭 기반 KRR 시뮬레이션 및 백필 파이프라인
+│       ├── backfill_all_cluster.py                 # 클러스터 메트릭 Thanos/Prometheus 백필
+│       └── generate_krr_dummy_history.py           # OpenMetrics 규격 시뮬레이션 데이터 생성기 (Diurnal/20분 주기 스파이크, 30s Step)
 │
-├── ☸️ k8s/                        # Kubernetes 배포 매니페스트
-│   └── sample-fastapi/             # Deployment, Service, ServiceMonitor 설정
+├── 📈 chronos/                                     # 시계열 AI 예측 기반 오토스케일러 (Predictive HPA)
+│   ├── chronos_prometheus.py                       # Prometheus Recording Rule 기반 트래픽 시계열 예측
+│   ├── run_pipeline.sh                             # 트래픽 예측 및 선제적 Pod Scaling 파이프라인
+│   └── CHRONOS_RECORDING_GUIDE.md                  # 시계열 메트릭 집계 룰 가이드
 │
-├── 📈 chronos/ & alarm/           # 예측 오토스케일링 & 알림 시스템
-│   ├── chronos/                    # Prometheus 연동 시계열 예측 오토스케일러
-│   └── alarm/                      # 모니터링 리포트 생성 및 전송 스크립트
+├── 🧪 k6/                                          # 실 트래픽 재현 및 FinOps 검증 프레임워크
+│   ├── bank-of-anthos-long-run.js                  # 복합 금융 트랜잭션 시나리오 (Locust/k6 통합)
+│   ├── overallocated-test.js                       # 오버프로비저닝 재현 및 Rightsizing 효과 검증
+│   ├── queue-scale-*.js                            # Redis Queue 기반 KEDA 선제적 이벤트 스케일링 검증
+│   └── collect_bank_krr_run.py                     # 부하 전/후 KRR 권장값 비교 및 비용 절감 수치 도출
 │
-├── 💰 finops/                     # 비용 최적화 (FinOps)
-│   ├── app/                        # FinOps 분석 및 리포팅 엔진
-│   ├── charts/finops/              # FinOps K8s Helm Chart
-│   └── scripts/                    # KRR(Kubernetes Resource Recommendation) 백필 스크립트
+├── 🚀 scratch/bank-of-anthos/src/                  # 개선된 금융 MSA 아키텍처
+│   ├── ledgermonolith/                             # 모놀리스 vs MSA 비교 검증용 원장 서비스
+│   ├── loadgenerator/                              # Locust 트래픽 생성 및 사용자 행동 모델링
+│   └── ledger/balancereader/                       # Redis/Caffeine 캐시 최적화 원장 조회 서비스
 │
-├── 🧪 k6/                         # 성능 및 부하 테스트
-│   ├── cpu-load.js / memory-load.js# 리소스 부하 테스트
-│   ├── karpenter-stress.js         # Karpenter 노드 증설 테스트
-│   └── queue-scale-*.js            # 큐 기반 스케일링 테스트
-│
-├── 📚 docs/                       # 프로젝트 문서 및 테스트 결과
-│   ├── *-runbook.md                # 운영 런북 (Chronos, Redis Queue 등)
-│   └── test-results/               # 부하 테스트 결과 (JSON/MD)
-│
-└── 🛠️ Root Scripts & Configs      # 로컬 개발 및 제어 스크립트
-    ├── docker-compose.yml          # 로컬 컨테이너 실행 환경
-    ├── Makefile / setup.sh         # 프로젝트 설정 및 자동화 명령
-    └── memo.md                     # 메모
+└── 📚 docs/ & 📜 scripts/                          # 검증 보고서 및 운영 런북
+    ├── bank-of-anthos-krr-gap-report.md            # KRR Rightsizing 전/후 리소스 낭비 절감 리포트
+    ├── chronos-predictive-autoscaling-runbook.md   # Reactive vs Predictive A/B 테스트 & Shadow/Active E2E 런북
+    └── verify-dev-deployment.sh                    # 인프라-MSA-FinOps 엔드투엔드 무결성 검증
 ```
 
 ## 🔐 Repository Secrets
