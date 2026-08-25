@@ -151,6 +151,8 @@ class CustomRollbackRequest(BaseModel):
 # 🛠️ Helper 함수들
 # ==========================================
 def send_telegram_message(text: str, reply_markup: dict = None):
+    """성공 시 전송된 메시지의 message_id를, 실패/에러 시 None을 반환합니다.
+    (기존 호출부들은 반환값을 안 쓰므로 그대로 호환됩니다.)"""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -164,8 +166,11 @@ def send_telegram_message(text: str, reply_markup: dict = None):
         print(f"📲 Telegram 전송 결과 -> 응답 코드: {res.status_code}")
         if res.status_code != 200:
             print(f"❌ Telegram 전송 실패 상세: {res.text}")
+            return None
+        return res.json().get("result", {}).get("message_id")
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
+        return None
 
 def send_telegram_document(filename: str, content: bytes, caption: str = ""):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
@@ -220,6 +225,32 @@ def append_progress_status(original_text: str, status_line: str) -> str:
     if original_text:
         return f"{original_text}\n\n{status_line}"
     return status_line
+
+# message_id -> [(namespace, deployment_name, container_name), ...]. 배치 승인 메시지 안에서
+# 버튼이 몇 번째 워크로드를 가리키는지 순서로 기억해둡니다. namespace/deployment/container를
+# callback_data에 직접 담으면 이름이 긴 워크로드(예: 자동 생성된 부하테스트 Job 이름)에서
+# 텔레그램 콜백 데이터 64바이트 제한을 넘어 메시지 전체 전송이 실패하는 문제가 실제로
+# 있었습니다(재현 확인). 대신 짧은 인덱스만 담고, 실제 식별자는 여기서 message_id 기준으로
+# 조회합니다. 파드가 재시작되면(다른 캐시들과 동일하게) 그 사이 보낸 메시지의 매핑은 사라집니다.
+_batch_approval_registry: dict = {}
+
+def _resolve_batch_target(callback_data: str, prefix: str, message_id: int):
+    """콜백 데이터에서 실제 namespace/deployment/container를 알아냅니다.
+    최신 형식은 `prefix:<인덱스>`(_batch_approval_registry에서 message_id 기준 조회)이고,
+    구버전 메시지(그리고 /webhook/deploy-request 단건 경로) 호환을 위해
+    `prefix:<namespace>:<deployment>[:<container>]` 형식도 계속 지원합니다."""
+    rest = callback_data[len(prefix):].lstrip(":")
+    if rest.isdigit():
+        entries = _batch_approval_registry.get(message_id, [])
+        idx = int(rest)
+        if 0 <= idx < len(entries):
+            return entries[idx]
+        return ("", "", "")
+    parts = rest.split(":", 2)
+    namespace = parts[0] if len(parts) > 0 else ""
+    deployment = parts[1] if len(parts) > 1 else ""
+    container = parts[2] if len(parts) > 2 else ""
+    return (namespace, deployment, container)
 
 # 상우 님 FinOps 분석 엔진에서 동적 권장 리소스(final_cpu, final_memory) 조회
 def fetch_finops_recommendation(namespace: str, deployment_name: str, container_name: str) -> Optional[dict]:
@@ -352,6 +383,7 @@ async def handle_deploy_batch_approval(payload: dict):
 
     lines = []
     keyboard_rows = []
+    registry_entries = []
     for w in workloads:
         namespace = w.get("namespace", "")
         deployment_name = w.get("deployment_name", "")
@@ -361,14 +393,18 @@ async def handle_deploy_batch_approval(payload: dict):
         lines.append(line)
 
         if overall_status == "PASS" and namespace and deployment_name and container_name:
+            idx = len(registry_entries)
+            registry_entries.append((namespace, deployment_name, container_name))
             keyboard_rows.append([
-                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{namespace}:{deployment_name}:{container_name}"},
-                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{namespace}:{deployment_name}:{container_name}"}
+                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{idx}"},
+                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{idx}"}
             ])
 
     text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드)\n\n" + "\n\n".join(lines)
     reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
-    send_telegram_message(text, reply_markup=reply_markup)
+    message_id = send_telegram_message(text, reply_markup=reply_markup)
+    if message_id and registry_entries:
+        _batch_approval_registry[message_id] = registry_entries
     return {"status": "ok", "message": "Batch approval message sent to Telegram"}
 
 # 3. KEDA 오토스케일링 수신
@@ -459,11 +495,9 @@ async def telegram_callback_webhook(request: Request):
 
         # 4) FinOps 권장안 거부
         elif callback_data == "infra_reject" or callback_data.startswith("infra_reject:"):
-            rest = callback_data[len("infra_reject"):].lstrip(":")
-            parts = rest.split(":", 2)
-            target_namespace = parts[0] if len(parts) > 0 else ""
-            target_deployment = parts[1] if len(parts) > 1 else ""
-            target_container = parts[2] if len(parts) > 2 else ""
+            target_namespace, target_deployment, target_container = _resolve_batch_target(
+                callback_data, "infra_reject", message_id
+            )
             label = f"{target_namespace}/{target_deployment}/{target_container}" if target_deployment and target_container else "대상 워크로드"
             update_telegram_message(
                 chat_id, message_id,
@@ -475,11 +509,9 @@ async def telegram_callback_webhook(request: Request):
 
         # 3) FinOps 최적화 권장안 승인 (상우 님 엔진 동적 재조회 후 GitHub Actions 반영)
         elif callback_data == "infra_approve" or callback_data.startswith("infra_approve:"):
-            rest = callback_data[len("infra_approve"):].lstrip(":")
-            parts = rest.split(":", 2)
-            target_namespace = parts[0] if len(parts) > 0 else ""
-            target_deployment = parts[1] if len(parts) > 1 else ""
-            target_container = parts[2] if len(parts) > 2 else ""
+            target_namespace, target_deployment, target_container = _resolve_batch_target(
+                callback_data, "infra_approve", message_id
+            )
 
             if not target_namespace or not target_deployment or not target_container:
                 update_telegram_message(
