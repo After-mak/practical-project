@@ -150,14 +150,7 @@ class CustomRollbackRequest(BaseModel):
 # ==========================================
 # 🛠️ Helper 함수들
 # ==========================================
-
-# 전체 승인/전체 거절 배치 메시지가 다루는 워크로드 목록을 message_id별로 기억해두는 레지스트리.
-# Telegram inline button의 callback_data는 64바이트 제한이 있어 13개 워크로드의
-# namespace/deployment/container를 버튼에 직접 담을 수 없으므로, 버튼을 보낼 때 이 딕셔너리에
-# {message_id: [워크로드 목록]}로 저장해두고 콜백이 오면 message_id로 다시 꺼내 씁니다.
-_batch_approval_registry: dict = {}
-def send_telegram_message(text: str, reply_markup: dict = None) -> Optional[int]:
-    """전송 성공 시 메시지 id를, 실패/에러 시 None을 반환합니다."""
+def send_telegram_message(text: str, reply_markup: dict = None):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -171,11 +164,8 @@ def send_telegram_message(text: str, reply_markup: dict = None) -> Optional[int]
         print(f"📲 Telegram 전송 결과 -> 응답 코드: {res.status_code}")
         if res.status_code != 200:
             print(f"❌ Telegram 전송 실패 상세: {res.text}")
-            return None
-        return res.json().get("result", {}).get("message_id")
     except Exception as e:
         print(f"❌ Telegram 전송 에러: {e}")
-        return None
 
 def send_telegram_document(filename: str, content: bytes, caption: str = ""):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
@@ -354,11 +344,7 @@ async def handle_deploy_batch_report(file: UploadFile = File(...), caption: str 
     ok = send_telegram_document(file.filename, content, caption)
     return {"status": "ok" if ok else "error"}
 
-# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드.
-# 워크로드마다 버튼을 따로 두면(이전 방식) 메시지를 반복 편집할 때마다 reply_markup을 다시 안
-# 실어보내는 문제로 버튼이 통째로 사라지는 게 재현됐고, 그렇다고 승인/거절할 때마다 새 메시지를
-# 보내면 애초에 메시지를 하나로 합치려던 목적과 반대로 메시지가 늘어납니다. 그래서 버튼은
-# "전체 승인"/"전체 거절" 한 쌍만 두고, 눌렀을 때 PASS인 워크로드 전체를 한 번에 반영합니다.
+# 2-2. 전체 워크로드를 하나의 메시지로 묶은 승인/거절 카드 (워크로드마다 버튼 한 줄씩)
 @app.post("/webhook/deploy-batch-approval")
 async def handle_deploy_batch_approval(payload: dict):
     workloads = payload.get("workloads", [])
@@ -366,7 +352,7 @@ async def handle_deploy_batch_approval(payload: dict):
         return {"status": "ignored", "reason": "no workloads in payload"}
 
     lines = []
-    registry_entries = []
+    keyboard_rows = []
     for w in workloads:
         namespace = w.get("namespace", "")
         deployment_name = w.get("deployment_name", "")
@@ -376,26 +362,14 @@ async def handle_deploy_batch_approval(payload: dict):
         lines.append(line)
 
         if overall_status == "PASS" and namespace and deployment_name and container_name:
-            registry_entries.append({
-                "namespace": namespace,
-                "deployment_name": deployment_name,
-                "container_name": container_name,
-            })
+            keyboard_rows.append([
+                {"text": f"✅ 승인 {deployment_name}/{container_name}", "callback_data": f"infra_approve:{namespace}:{deployment_name}:{container_name}"},
+                {"text": f"❌ 거부 {deployment_name}/{container_name}", "callback_data": f"infra_reject:{namespace}:{deployment_name}:{container_name}"}
+            ])
 
-    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드, 승인 대상 {len(registry_entries)}개)\n\n" + "\n\n".join(lines)
-    reply_markup = None
-    if registry_entries:
-        reply_markup = {
-            "inline_keyboard": [[
-                {"text": f"✅ 전체 승인 ({len(registry_entries)}개)", "callback_data": "infra_approve_all"},
-                {"text": "❌ 전체 거절", "callback_data": "infra_reject_all"},
-            ]]
-        }
-
-    message_id = send_telegram_message(text, reply_markup=reply_markup)
-    if message_id is not None and registry_entries:
-        _batch_approval_registry[message_id] = registry_entries
-
+    text = f"💡 <b>[FinOps 최적화 권장안]</b> ({len(workloads)}개 워크로드)\n\n" + "\n\n".join(lines)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    send_telegram_message(text, reply_markup=reply_markup)
     return {"status": "ok", "message": "Batch approval message sent to Telegram"}
 
 # 3. KEDA 오토스케일링 수신
@@ -556,79 +530,6 @@ async def telegram_callback_webhook(request: Request):
                     original_text,
                     f"❌ <b>[거부 완료]</b> <code>{label}</code> 최적화 권장안을 거부했습니다. 현재 설정을 유지합니다."
                 ),
-                parse_mode="HTML"
-            )
-
-        # 5) 배치 전체 승인 — registry에서 이 메시지에 저장해둔 워크로드 목록을 꺼내
-        # 하나씩 GitOps에 반영하고, 결과를 모아 메시지 하나만 수정합니다.
-        elif callback_data == "infra_approve_all":
-            entries = _batch_approval_registry.pop(message_id, [])
-            if not entries:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(original_text, "ℹ️ 이미 처리되었거나 대상이 없는 요청입니다."),
-                    parse_mode="HTML"
-                )
-                return {"status": "ok"}
-
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(original_text, f"🔄 <b>[전체 적용 시작]</b> {len(entries)}개 워크로드를 순서대로 반영합니다..."),
-                parse_mode="HTML"
-            )
-
-            result_lines = []
-            for entry in entries:
-                target_namespace = entry["namespace"]
-                target_deployment = entry["deployment_name"]
-                target_container = entry["container_name"]
-                label = f"{target_namespace}/{target_deployment}/{target_container}"
-
-                recommendation = fetch_finops_recommendation(target_namespace, target_deployment, target_container)
-                if recommendation is None:
-                    final_cpu = "298m"
-                    final_memory = "100Mi"
-                else:
-                    final_cpu = recommendation.get("final_cpu", "298m")
-                    final_memory = recommendation.get("final_memory", "100Mi")
-
-                started = trigger_github_workflow(
-                    "finops-apply.yaml",
-                    {
-                        "namespace": target_namespace,
-                        "deployment_name": target_deployment,
-                        "container_name": target_container,
-                        "cpu": final_cpu,
-                        "memory": final_memory,
-                    },
-                    ref=GITOPS_TARGET_BRANCH
-                )
-                icon = "✅" if started else "❌"
-                result_lines.append(f"{icon} <code>{label}</code>: CPU {final_cpu} / Memory {final_memory}")
-
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(
-                    original_text,
-                    f"✅ <b>[전체 적용 요청 완료]</b> {len(entries)}개 워크로드 반영 파이프라인이 시작됐습니다!\n\n" + "\n".join(result_lines)
-                ),
-                parse_mode="HTML"
-            )
-
-        # 6) 배치 전체 거절 — GitOps는 건드리지 않고 registry만 비웁니다.
-        elif callback_data == "infra_reject_all":
-            entries = _batch_approval_registry.pop(message_id, [])
-            if not entries:
-                update_telegram_message(
-                    chat_id, message_id,
-                    append_progress_status(original_text, "ℹ️ 이미 처리되었거나 대상이 없는 요청입니다."),
-                    parse_mode="HTML"
-                )
-                return {"status": "ok"}
-
-            update_telegram_message(
-                chat_id, message_id,
-                append_progress_status(original_text, f"❌ <b>[전체 거절 완료]</b> {len(entries)}개 워크로드의 최적화 권장안을 거절했습니다. 현재 설정을 유지합니다."),
                 parse_mode="HTML"
             )
 
